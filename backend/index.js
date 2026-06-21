@@ -1502,6 +1502,157 @@ app.delete('/api/activities/:id', authenticateToken, requireRole(['admin']), asy
   }
 });
 
+// ==========================================
+// 7. FREQUÊNCIA E PRESENÇA EM ATIVIDADES
+// ==========================================
+
+// Obter estatísticas de frequência do Participante Logado em um Evento
+app.get('/api/events/:id/my-frequency', authenticateToken, async (req, res) => {
+  const eventId = req.params.id;
+  const userId = req.user.id;
+
+  try {
+    // 1. Verificar se o participante está inscrito no evento
+    const registration = await getQuery('SELECT id FROM registrations WHERE event_id = ? AND user_id = ?', [eventId, userId]);
+    if (!registration) {
+      return res.status(403).json({ error: 'Você não está inscrito neste evento.' });
+    }
+
+    // 2. Buscar todas as atividades do evento
+    const activities = await allQuery('SELECT * FROM activities WHERE event_id = ? ORDER BY start_time ASC', [eventId]);
+
+    // 3. Buscar presenças do usuário neste evento
+    const presences = await allQuery('SELECT activity_id FROM activity_presences WHERE event_id = ? AND user_id = ?', [eventId, userId]);
+    const presenceSet = new Set(presences.map(p => p.activity_id));
+
+    // 4. Detalhar atividades com status de presença
+    const details = activities.map(act => ({
+      id: act.id,
+      title: act.title,
+      type: act.type,
+      start_time: act.start_time,
+      end_time: act.end_time,
+      location: act.location,
+      attended: presenceSet.has(act.id)
+    }));
+
+    const total_activities = activities.length;
+    const attended_activities = presenceSet.size;
+    const percentage = total_activities > 0 ? Math.round((attended_activities / total_activities) * 100) : 0;
+
+    res.json({
+      total_activities,
+      attended_activities,
+      percentage,
+      details
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao carregar estatísticas de frequência.' });
+  }
+});
+
+// Listar presenças em uma atividade (Admin)
+app.get('/api/activities/:activityId/presences', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const presences = await allQuery(`
+      SELECT ap.id, ap.user_id, ap.created_at, u.name as user_name, u.email as user_email
+      FROM activity_presences ap
+      JOIN users u ON ap.user_id = u.id
+      WHERE ap.activity_id = ?
+    `, [req.params.activityId]);
+    res.json(presences);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao listar presenças da atividade.' });
+  }
+});
+
+// Realizar ou remover check-in de atividade (Admin)
+app.post('/api/activities/:activityId/checkin', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { user_id, status } = req.body; // status: 1 para presente, 0 para ausente
+  const activityId = req.params.activityId;
+  const isPresent = status === undefined ? 1 : parseInt(status);
+
+  try {
+    // 1. Obter detalhes da atividade
+    const activity = await getQuery('SELECT event_id FROM activities WHERE id = ?', [activityId]);
+    if (!activity) return res.status(404).json({ error: 'Atividade não encontrada' });
+
+    if (isPresent) {
+      const presenceId = crypto.randomUUID();
+      await runQuery(`
+        INSERT OR IGNORE INTO activity_presences (id, event_id, activity_id, user_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `, [presenceId, activity.event_id, activityId, user_id, new Date().toISOString()]);
+      res.json({ message: 'Presença registrada com sucesso!', checked_in: 1 });
+    } else {
+      await runQuery('DELETE FROM activity_presences WHERE activity_id = ? AND user_id = ?', [activityId, user_id]);
+      res.json({ message: 'Presença removida com sucesso!', checked_in: 0 });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar presença em atividade.' });
+  }
+});
+
+// Credenciamento Kiosk / QR para atividade (Admin)
+app.post('/api/activities/:activityId/checkin-kiosk', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { identifier } = req.body; // registration_id ou CPF
+  const activityId = req.params.activityId;
+
+  if (!identifier) {
+    return res.status(400).json({ error: 'Identificador (CPF ou ID da credencial) é obrigatório' });
+  }
+
+  try {
+    // 1. Obter a atividade
+    const activity = await getQuery('SELECT event_id, title FROM activities WHERE id = ?', [activityId]);
+    if (!activity) return res.status(404).json({ error: 'Atividade não encontrada' });
+
+    // 2. Buscar o participante pelo ID de inscrição ou pelo CPF (limpo)
+    const cleanCpf = identifier.replace(/[^0-9]/g, '');
+    let registration = await getQuery(`
+      SELECT r.id, r.user_id, r.category, u.name as user_name, u.email as user_email
+      FROM registrations r
+      JOIN users u ON r.user_id = u.id
+      WHERE r.event_id = ? AND (r.id = ? OR REPLACE(REPLACE(u.cpf, '.', ''), '-', '') = ?)
+    `, [activity.event_id, identifier.trim(), cleanCpf]);
+
+    if (!registration) {
+      return res.status(404).json({ error: 'Participante não inscrito neste evento' });
+    }
+
+    // 3. Verificar se já possui presença na atividade
+    const existing = await getQuery('SELECT id FROM activity_presences WHERE activity_id = ? AND user_id = ?', [activityId, registration.user_id]);
+    if (existing) {
+      return res.status(400).json({ 
+        error: `${registration.user_name} já credenciado(a) nesta atividade!`,
+        already_checked_in: true,
+        user_name: registration.user_name,
+        category: registration.category
+      });
+    }
+
+    // 4. Inserir presença
+    const presenceId = crypto.randomUUID();
+    await runQuery(`
+      INSERT INTO activity_presences (id, event_id, activity_id, user_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [presenceId, activity.event_id, activityId, registration.user_id, new Date().toISOString()]);
+
+    res.json({
+      message: `Presença registrada! Seja bem-vindo(a), ${registration.user_name}!`,
+      user_name: registration.user_name,
+      user_email: registration.user_email,
+      category: registration.category
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao processar credenciamento na atividade.' });
+  }
+});
+
 // Run server
 app.listen(PORT, () => {
   console.log(`Backend server running at http://localhost:${PORT}`);

@@ -967,6 +967,152 @@ function DashboardRouter({ user, token, subView, setSubView, showToast }) {
 // ==========================================
 
 // A. PARTICIPANT ENROLLED EVENTS & VIRTUAL TRANSMISSION
+function ParticipantRegistrationCard({ reg, token, onSelectLive, onSelectWallet, onDownloadReceipt }) {
+  const [frequency, setFrequency] = useState(null);
+  const [loadingFreq, setLoadingFreq] = useState(true);
+  const [showDetails, setShowDetails] = useState(false);
+
+  useEffect(() => {
+    fetchFrequency();
+  }, [reg.event_id]);
+
+  const fetchFrequency = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/events/${reg.event_id}/my-frequency`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFrequency(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingFreq(false);
+    }
+  };
+
+  const getFormatLabel = (type) => {
+    const formats = {
+      'school_of_summer': 'Escola de Verão',
+      'dima': 'DIMA',
+      'live_cycle': 'Ciclo de Lives',
+      'workshop': 'Workshop'
+    };
+    return formats[type] || 'Evento';
+  };
+
+  return (
+    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <span className="badge badge-primary" style={{ marginBottom: '8px' }}>
+            {getFormatLabel(reg.type)}
+          </span>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{reg.event_name}</h3>
+          <div style={{ display: 'flex', gap: '15px', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px' }}>
+            <span>Categoria: <strong>{reg.category}</strong></span>
+            <span>Inscrito em: {new Date(reg.created_at).toLocaleDateString('pt-BR')}</span>
+          </div>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {reg.type === 'live_cycle' && (
+            <button className="btn btn-accent" onClick={() => onSelectLive(reg)}>
+              <Video size={18} />
+              Entrar na Transmissão
+            </button>
+          )}
+          <button className="btn btn-secondary" onClick={() => onSelectWallet(reg)}>
+            <QrCode size={18} />
+            Ver QR Credencial
+          </button>
+          <button className="btn btn-primary" onClick={() => onDownloadReceipt(reg.id)}>
+            <FileText size={18} />
+            Comprovante PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Real-time Frequency section */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '5px' }}>
+        {loadingFreq ? (
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Carregando frequência nas atividades...</span>
+        ) : frequency ? (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Frequência nas Atividades:</span>
+                <span style={{ 
+                  fontSize: '0.9rem', 
+                  fontWeight: 'bold', 
+                  color: frequency.percentage >= 75 ? 'var(--success)' : 'var(--danger)'
+                }}>
+                  {frequency.percentage}%
+                </span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  ({frequency.attended_activities} de {frequency.total_activities} atividades)
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.78rem', padding: '3px 8px', borderRadius: '4px', background: frequency.percentage >= 75 ? 'rgba(5, 150, 105, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: frequency.percentage >= 75 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                  {frequency.percentage >= 75 ? 'Requisito de Certificado Atingido' : 'Frequência abaixo de 75%'}
+                </span>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                  onClick={() => setShowDetails(!showDetails)}
+                >
+                  {showDetails ? 'Ocultar Atividades' : 'Detalhar Atividades'}
+                </button>
+              </div>
+            </div>
+
+            {/* Attendance Progress Bar */}
+            <div style={{ height: '8px', background: 'var(--surface-secondary)', borderRadius: '4px', overflow: 'hidden', width: '100%', marginBottom: '10px' }}>
+              <div style={{ 
+                height: '100%', 
+                background: frequency.percentage >= 75 ? 'var(--success)' : 'var(--danger)', 
+                width: `${frequency.percentage}%`,
+                borderRadius: '4px',
+                transition: 'width 0.3s ease-out'
+              }}></div>
+            </div>
+
+            {/* Attendance Breakdown (collapsible) */}
+            {showDetails && (
+              <div style={{ background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)', padding: '12px', marginTop: '12px', border: '1px solid var(--border)', animation: 'modalEnter 0.2s ease-out' }}>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '10px', color: 'var(--primary)' }}>Presença Detalhada por Atividade:</h4>
+                {frequency.details.length === 0 ? (
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Nenhuma atividade cadastrada na programação deste evento.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {frequency.details.map(act => (
+                      <div key={act.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#fff', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{act.title}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            📅 {new Date(act.start_time).toLocaleDateString('pt-BR')} | ⏰ {new Date(act.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {new Date(act.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                        <span className={`badge ${act.attended ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.7rem', padding: '4px 8px' }}>
+                          {act.attended ? 'Presente' : 'Ausente'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span style={{ fontSize: '0.85rem', color: 'var(--danger)' }}>Falha ao carregar dados de frequência.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ParticipantEventsView({ user, token, showToast }) {
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1165,35 +1311,14 @@ function ParticipantEventsView({ user, token, showToast }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {registrations.map(reg => (
-            <div key={reg.id} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <span className="badge badge-primary" style={{ marginBottom: '8px' }}>
-                  {reg.type === 'live_cycle' ? 'Ciclo de Lives' : 'Evento'}
-                </span>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{reg.event_name}</h3>
-                <div style={{ display: 'flex', gap: '15px', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px' }}>
-                  <span>Categoria: <strong>{reg.category}</strong></span>
-                  <span>Inscrito em: {new Date(reg.created_at).toLocaleDateString('pt-BR')}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                {reg.type === 'live_cycle' && (
-                  <button className="btn btn-accent" onClick={() => setSelectedLiveEvent(reg)}>
-                    <Video size={18} />
-                    Entrar na Transmissão
-                  </button>
-                )}
-                {/* Visual QR Ticket code simulation */}
-                <button className="btn btn-secondary" onClick={() => setWalletReg(reg)}>
-                  <QrCode size={18} />
-                  Ver QR Credencial
-                </button>
-                <button className="btn btn-primary" onClick={() => handleDownloadReceiptPDF(reg.id)}>
-                  <FileText size={18} />
-                  Comprovante PDF
-                </button>
-              </div>
-            </div>
+            <ParticipantRegistrationCard 
+              key={reg.id}
+              reg={reg}
+              token={token}
+              onSelectLive={setSelectedLiveEvent}
+              onSelectWallet={setWalletReg}
+              onDownloadReceipt={handleDownloadReceiptPDF}
+            />
           ))}
         </div>
       )}
@@ -3790,6 +3915,11 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
   const [kioskStatus, setKioskStatus] = useState('idle'); // idle | loading | success | error
   const [kioskMessage, setKioskMessage] = useState('');
 
+  // Activity frequency states
+  const [selectedActivityId, setSelectedActivityId] = useState('');
+  const [eventActivities, setEventActivities] = useState([]);
+  const [activityPresences, setActivityPresences] = useState([]);
+
   useEffect(() => {
     if (!propEventId) {
       fetchEvents();
@@ -3801,8 +3931,18 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
   useEffect(() => {
     if (selectedEventId) {
       fetchAttendees(selectedEventId);
+      fetchEventActivities(selectedEventId);
+      setSelectedActivityId('');
     }
   }, [selectedEventId]);
+
+  useEffect(() => {
+    if (selectedActivityId) {
+      fetchActivityPresences(selectedActivityId);
+    } else {
+      setActivityPresences([]);
+    }
+  }, [selectedActivityId]);
 
   const fetchEvents = async () => {
     try {
@@ -3829,25 +3969,74 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
     }
   };
 
-  const handleCheckinToggle = async (regId, currentStatus) => {
+  const fetchEventActivities = async (eventId) => {
     try {
-      const res = await fetch(`${API_URL}/api/registrations/${regId}/checkin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status: currentStatus ? 0 : 1 })
-      });
-
+      const res = await fetch(`${API_URL}/api/events/${eventId}/activities`);
       if (res.ok) {
-        showToast(currentStatus ? 'Presença removida.' : 'Check-in realizado com sucesso!');
-        fetchAttendees(selectedEventId);
-      } else {
-        showToast('Erro ao atualizar presença', 'danger');
+        const data = await res.json();
+        setEventActivities(data);
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const fetchActivityPresences = async (activityId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/activities/${activityId}/presences`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActivityPresences(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCheckinToggle = async (attendee, isPresent) => {
+    if (selectedActivityId) {
+      // Activity Check-in Toggle
+      try {
+        const res = await fetch(`${API_URL}/api/activities/${selectedActivityId}/checkin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ user_id: attendee.user_id, status: isPresent ? 0 : 1 })
+        });
+        if (res.ok) {
+          showToast(isPresent ? 'Presença removida da atividade.' : 'Check-in na atividade realizado!');
+          fetchActivityPresences(selectedActivityId);
+        } else {
+          showToast('Erro ao atualizar presença na atividade', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      // General Event Check-in Toggle
+      try {
+        const res = await fetch(`${API_URL}/api/registrations/${attendee.id}/checkin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: isPresent ? 0 : 1 })
+        });
+
+        if (res.ok) {
+          showToast(isPresent ? 'Presença geral removida.' : 'Check-in geral realizado com sucesso!');
+          fetchAttendees(selectedEventId);
+        } else {
+          showToast('Erro ao atualizar presença geral', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -3913,53 +4102,31 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
     setKioskStatus('loading');
     const formattedInput = kioskInput.trim();
     
-    try {
-      const resRegs = await fetch(`${API_URL}/api/events/${selectedEventId}/registrations`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (resRegs.ok) {
-        const regs = await resRegs.json();
-        setRegistrations(regs);
-        
-        const match = regs.find(r => r.id === formattedInput || r.user_cpf.replace(/[^0-9]/g, '') === formattedInput.replace(/[^0-9]/g, ''));
-        if (match) {
-          if (match.checked_in) {
-            setKioskStatus('error');
-            setKioskMessage(`${match.user_name} já credenciado(a) anteriormente!`);
-            playBeep(false);
-            setKioskInput('');
-            setTimeout(() => {
-              setKioskStatus('idle');
-              setKioskMessage('');
-            }, 3500);
-          } else {
-            const checkinRes = await fetch(`${API_URL}/api/registrations/${match.id}/checkin`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({ status: 1 })
-            });
-            if (checkinRes.ok) {
-              setKioskStatus('success');
-              setKioskMessage(`Check-in realizado! Seja bem-vindo(a), ${match.user_name}!`);
-              playBeep(true);
-              setKioskInput('');
-              fetchAttendees(selectedEventId);
-              setTimeout(() => {
-                setKioskStatus('idle');
-                setKioskMessage('');
-              }, 3500);
-            } else {
-              setKioskStatus('error');
-              setKioskMessage('Falha ao processar credenciamento no servidor.');
-              playBeep(false);
-            }
-          }
+    if (selectedActivityId) {
+      // Activity Check-in Kiosk Mode
+      try {
+        const res = await fetch(`${API_URL}/api/activities/${selectedActivityId}/checkin-kiosk`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ identifier: formattedInput })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setKioskStatus('success');
+          setKioskMessage(data.message);
+          playBeep(true);
+          setKioskInput('');
+          fetchActivityPresences(selectedActivityId);
+          setTimeout(() => {
+            setKioskStatus('idle');
+            setKioskMessage('');
+          }, 3500);
         } else {
           setKioskStatus('error');
-          setKioskMessage('Participante ou código credencial não localizado neste evento!');
+          setKioskMessage(data.error || 'Erro ao realizar credenciamento na atividade');
           playBeep(false);
           setKioskInput('');
           setTimeout(() => {
@@ -3967,12 +4134,75 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
             setKioskMessage('');
           }, 3500);
         }
+      } catch (err) {
+        console.error(err);
+        setKioskStatus('error');
+        setKioskMessage('Erro de conexão ao buscar credencial.');
+        playBeep(false);
       }
-    } catch (err) {
-      console.error(err);
-      setKioskStatus('error');
-      setKioskMessage('Erro de conexão ao buscar credencial.');
-      playBeep(false);
+    } else {
+      // General Event Check-in Kiosk Mode
+      try {
+        const resRegs = await fetch(`${API_URL}/api/events/${selectedEventId}/registrations`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resRegs.ok) {
+          const regs = await resRegs.json();
+          setRegistrations(regs);
+          
+          const match = regs.find(r => r.id === formattedInput || r.user_cpf.replace(/[^0-9]/g, '') === formattedInput.replace(/[^0-9]/g, ''));
+          if (match) {
+            if (match.checked_in) {
+              setKioskStatus('error');
+              setKioskMessage(`${match.user_name} já credenciado(a) anteriormente!`);
+              playBeep(false);
+              setKioskInput('');
+              setTimeout(() => {
+                setKioskStatus('idle');
+                setKioskMessage('');
+              }, 3500);
+            } else {
+              const checkinRes = await fetch(`${API_URL}/api/registrations/${match.id}/checkin`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ status: 1 })
+              });
+              if (checkinRes.ok) {
+                setKioskStatus('success');
+                setKioskMessage(`Check-in realizado! Seja bem-vindo(a), ${match.user_name}!`);
+                playBeep(true);
+                setKioskInput('');
+                fetchAttendees(selectedEventId);
+                setTimeout(() => {
+                  setKioskStatus('idle');
+                  setKioskMessage('');
+                }, 3500);
+              } else {
+                setKioskStatus('error');
+                setKioskMessage('Falha ao processar credenciamento no servidor.');
+                playBeep(false);
+              }
+            }
+          } else {
+            setKioskStatus('error');
+            setKioskMessage('Participante ou código credencial não localizado neste evento!');
+            playBeep(false);
+            setKioskInput('');
+            setTimeout(() => {
+              setKioskStatus('idle');
+              setKioskMessage('');
+            }, 3500);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        setKioskStatus('error');
+        setKioskMessage('Erro de conexão ao buscar credencial.');
+        playBeep(false);
+      }
     }
   };
 
@@ -3984,7 +4214,10 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
     // Search matching registration in the attendee list
     const match = registrations.find(r => r.id === qrCodeInput.trim() || r.user_cpf === qrCodeInput.trim());
     if (match) {
-      handleCheckinToggle(match.id, match.checked_in);
+      const isPresent = selectedActivityId
+        ? activityPresences.some(ap => ap.user_id === match.user_id)
+        : match.checked_in === 1;
+      handleCheckinToggle(match, isPresent);
       setQrCodeInput('');
       setScanning(false);
     } else {
@@ -4019,12 +4252,15 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
   );
 
   const totalRegistered = registrations.length;
-  const totalPresent = registrations.filter(r => r.checked_in === 1).length;
+  const totalPresent = selectedActivityId
+    ? activityPresences.length
+    : registrations.filter(r => r.checked_in === 1).length;
   const totalAbsent = totalRegistered - totalPresent;
   const attendancePercent = totalRegistered > 0 ? Math.round((totalPresent / totalRegistered) * 100) : 0;
 
   if (kioskMode) {
     const activeEvent = events.find(e => e.id === selectedEventId);
+    const activeActivity = eventActivities.find(a => a.id === selectedActivityId);
     return (
       <div style={{
         position: 'fixed',
@@ -4057,6 +4293,11 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
           <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#fff', marginBottom: '10px' }}>G-TERCOA Credenciamento</h1>
           <p style={{ fontSize: '1.2rem', color: '#93c5fd', marginBottom: '40px' }}>
             Edição: <strong>{activeEvent ? activeEvent.name : 'Carregando...'}</strong>
+            {activeActivity && (
+              <span style={{ display: 'block', color: 'var(--accent)', fontSize: '1.1rem', marginTop: '5px' }}>
+                Atividade: <strong>{activeActivity.title}</strong>
+              </span>
+            )}
           </p>
 
           {kioskStatus === 'idle' && (
@@ -4144,6 +4385,29 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
           </div>
         </div>
 
+        {/* Dropdown selectors for Event and Activity */}
+        <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          {!propEventId && (
+            <div style={{ minWidth: '220px' }}>
+              <label className="form-label" style={{ fontSize: '0.85rem' }}>Selecionar Evento</label>
+              <select className="form-select" value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
+                {events.map(ev => (
+                  <option key={ev.id} value={ev.id}>{ev.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: '250px' }}>
+            <label className="form-label" style={{ fontSize: '0.85rem' }}>Tipo de Controle / Chamada</label>
+            <select className="form-select" value={selectedActivityId} onChange={(e) => setSelectedActivityId(e.target.value)}>
+              <option value="">Credenciamento Geral do Evento</option>
+              {eventActivities.map(act => (
+                <option key={act.id} value={act.id}>Presença em: {act.title} ({act.type.replace('_', ' ')})</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Live Attendance Metrics Card */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--surface-secondary)', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid var(--border)' }}>
           <div style={{ textAlign: 'center' }}>
@@ -4165,13 +4429,6 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
         </div>
 
         <div className="form-group" style={{ display: 'flex', gap: '10px' }}>
-          {!propEventId && (
-            <select className="form-select" style={{ maxWidth: '250px' }} value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
-              {events.map(ev => (
-                <option key={ev.id} value={ev.id}>{ev.name}</option>
-              ))}
-            </select>
-          )}
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={16} style={{ position: 'absolute', left: '12px', top: '14px', color: 'var(--text-muted)' }} />
             <input 
@@ -4200,27 +4457,32 @@ function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
               {filteredAttendees.length === 0 ? (
                 <tr><td colSpan="5" style={{ textAlign: 'center' }}>Nenhum participante inscrito neste evento.</td></tr>
               ) : (
-                filteredAttendees.map(att => (
-                  <tr key={att.id} style={{ background: att.checked_in ? 'rgba(5, 150, 105, 0.03)' : '#fff' }}>
-                    <td style={{ fontWeight: 600 }}>{att.user_name}</td>
-                    <td>{att.user_cpf}</td>
-                    <td>{att.category}</td>
-                    <td>
-                      <span className={`badge ${att.checked_in ? 'badge-success' : 'badge-danger'}`}>
-                        {att.checked_in ? 'Presente' : 'Faltando'}
-                      </span>
-                    </td>
-                    <td>
-                      <button 
-                        className={`btn ${att.checked_in ? 'btn-danger' : 'btn-primary'}`} 
-                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                        onClick={() => handleCheckinToggle(att.id, att.checked_in)}
-                      >
-                        {att.checked_in ? 'Remover' : 'Credenciar'}
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                filteredAttendees.map(att => {
+                  const isPresent = selectedActivityId
+                    ? activityPresences.some(ap => ap.user_id === att.user_id)
+                    : att.checked_in === 1;
+                  return (
+                    <tr key={att.id} style={{ background: isPresent ? 'rgba(5, 150, 105, 0.03)' : '#fff' }}>
+                      <td style={{ fontWeight: 600 }}>{att.user_name}</td>
+                      <td>{att.user_cpf}</td>
+                      <td>{att.category}</td>
+                      <td>
+                        <span className={`badge ${isPresent ? 'badge-success' : 'badge-danger'}`}>
+                          {isPresent ? 'Presente' : 'Faltando'}
+                        </span>
+                      </td>
+                      <td>
+                        <button 
+                          className={`btn ${isPresent ? 'btn-danger' : 'btn-primary'}`} 
+                          style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                          onClick={() => handleCheckinToggle(att, isPresent)}
+                        >
+                          {isPresent ? 'Remover' : 'Credenciar'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

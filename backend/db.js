@@ -144,6 +144,20 @@ const initPromise = new Promise((resolve, reject) => {
         `);
 
         db.run(`
+          CREATE TABLE IF NOT EXISTS activity_presences (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL,
+            activity_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+            FOREIGN KEY (activity_id) REFERENCES activities (id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+            UNIQUE(activity_id, user_id)
+          )
+        `);
+
+        db.run(`
           CREATE TABLE IF NOT EXISTS certificates (
             id TEXT PRIMARY KEY,
             event_id TEXT NOT NULL,
