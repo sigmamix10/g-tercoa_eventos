@@ -1,0 +1,4436 @@
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { 
+  Calendar, 
+  User, 
+  BookOpen, 
+  FileText, 
+  Award, 
+  Video, 
+  Users, 
+  CheckCircle, 
+  FileCheck, 
+  Plus, 
+  Search, 
+  QrCode, 
+  LogOut, 
+  Clock, 
+  Info, 
+  ChevronRight, 
+  LayoutDashboard, 
+  Upload, 
+  Send,
+  Lock,
+  ExternalLink
+} from 'lucide-react';
+
+const API_URL = 'http://localhost:5000';
+
+export default function App() {
+  // Authentication State
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  
+  // Navigation State
+  // Views: 'home' | 'event-page' | 'dashboard' | 'verify'
+  const [activeView, setActiveView] = useState('home');
+  const [currentEventSlug, setCurrentEventSlug] = useState(null);
+  const [currentEvent, setCurrentEvent] = useState(null);
+  
+  // Dashboard Sub-views: 'admin-events' | 'admin-checkin' | 'admin-submissions' | 'admin-metrics' | 'evaluator-reviews' | 'participant-events' | 'participant-submissions' | 'participant-certificates'
+  const [dashboardSubView, setDashboardSubView] = useState('participant-events');
+
+  // Modals
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+
+  // Global Toast Notifications
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // Fetch logged in user profile on load
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem('token', token);
+      fetchUserProfile();
+    } else {
+      localStorage.removeItem('token');
+      setUser(null);
+    }
+  }, [token]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data);
+        // Set default dashboard view depending on role
+        if (data.role === 'admin') setDashboardSubView('admin-metrics');
+        else if (data.role === 'evaluator') setDashboardSubView('evaluator-reviews');
+        else setDashboardSubView('participant-events');
+      } else {
+        setToken('');
+      }
+    } catch (err) {
+      console.error(err);
+      setToken('');
+    }
+  };
+
+  const handleLogout = () => {
+    setToken('');
+    setUser(null);
+    setActiveView('home');
+    showToast('Logout realizado com sucesso.');
+  };
+
+  // Load active event when slug changes
+  useEffect(() => {
+    if (currentEventSlug) {
+      fetchEventDetails(currentEventSlug);
+    }
+  }, [currentEventSlug]);
+
+  const fetchEventDetails = async (slug) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/by-slug/${slug}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentEvent(data);
+      } else {
+        showToast('Erro ao carregar detalhes do evento', 'danger');
+        setActiveView('home');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao carregar detalhes do evento', 'danger');
+      setActiveView('home');
+    }
+  };
+
+  return (
+    <div>
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 9999,
+          background: toast.type === 'success' ? 'var(--success)' : 'var(--danger)',
+          color: '#fff',
+          padding: '12px 24px',
+          borderRadius: 'var(--radius-sm)',
+          boxShadow: 'var(--glass-shadow)',
+          fontWeight: 600,
+          animation: 'modalEnter 0.2s ease-out'
+        }}>
+          {toast.message}
+        </div>
+      )}
+
+      {/* Navigation Header */}
+      <nav className="main-nav">
+        <div className="logo-container" style={{ cursor: 'pointer' }} onClick={() => { setActiveView('home'); setCurrentEventSlug(null); }}>
+          <BookOpen size={24} />
+          <span>G-TERCOA <span style={{ color: 'var(--accent-light)', fontWeight: 500 }}>Eventos</span></span>
+        </div>
+        <div className="nav-links">
+          <a href="#" onClick={(e) => { e.preventDefault(); setActiveView('home'); setCurrentEventSlug(null); }}>Eventos</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); setActiveView('verify'); }}>Validar Certificado</a>
+          {user ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+              <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.9rem' }} onClick={() => setActiveView('dashboard')}>
+                <LayoutDashboard size={16} />
+                Painel
+              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{user.name.split(' ')[0]}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{user.role}</span>
+              </div>
+              <button className="btn btn-danger" style={{ padding: '8px 12px' }} onClick={handleLogout}>
+                <LogOut size={16} />
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button id="nav-login-btn" className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.9rem' }} onClick={() => setShowLoginModal(true)}>Entrar</button>
+              <button id="nav-register-btn" className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '0.9rem' }} onClick={() => setShowRegisterModal(true)}>Cadastrar</button>
+            </div>
+          )}
+        </div>
+      </nav>
+
+      {/* MAIN VIEW ROUTER */}
+      <main style={{ minHeight: 'calc(100vh - 70px)' }}>
+        {activeView === 'home' && (
+          <HomeView 
+            setActiveView={setActiveView} 
+            setCurrentEventSlug={setCurrentEventSlug} 
+            showToast={showToast} 
+            token={token}
+          />
+        )}
+        {activeView === 'event-page' && currentEvent && (
+          <EventEditionView 
+            event={currentEvent} 
+            token={token} 
+            user={user}
+            setActiveView={setActiveView}
+            showToast={showToast}
+            setShowLoginModal={setShowLoginModal}
+          />
+        )}
+        {activeView === 'verify' && (
+          <CertificateVerifyView showToast={showToast} />
+        )}
+        {activeView === 'dashboard' && user && (
+          <DashboardRouter 
+            user={user} 
+            token={token} 
+            subView={dashboardSubView} 
+            setSubView={setDashboardSubView} 
+            showToast={showToast}
+          />
+        )}
+      </main>
+
+      {/* FOOTER */}
+      <footer style={{ background: 'var(--secondary)', color: '#94a3b8', padding: '30px 20px', textAlign: 'center', fontSize: '0.9rem', borderTop: '1px solid var(--border)' }}>
+        <p>&copy; {new Date().getFullYear()} G-TERCOA - Grupo de Estudo e Pesquisa em Educação Matemática e Pedagogia.</p>
+        <p style={{ fontSize: '0.75rem', marginTop: '6px' }}>Plataforma integrada inspirada na arquitetura multi-tenant Even3.</p>
+      </footer>
+
+      {/* Auth Modals */}
+      {showLoginModal && (
+        <LoginModal 
+          onClose={() => setShowLoginModal(false)} 
+          setToken={setToken} 
+          showToast={showToast} 
+        />
+      )}
+      {showRegisterModal && (
+        <RegisterModal 
+          onClose={() => setShowRegisterModal(false)} 
+          showToast={showToast}
+          setShowLoginModal={setShowLoginModal}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// VIEW COMPONENTS
+// ==========================================
+
+// 1. HOME VIEW (LANDING PAGE)
+function HomeView({ setActiveView, setCurrentEventSlug, showToast }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events`);
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(data);
+      } else {
+        showToast('Erro ao carregar eventos', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao conectar ao servidor', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getFormatName = (type) => {
+    const formats = {
+      'school_of_summer': 'Escola de Verão',
+      'dima': 'DIMA (Diálogos Matemática & Pedagogia)',
+      'live_cycle': 'Ciclo de Lives',
+      'workshop': 'Workshop'
+    };
+    return formats[type] || 'Evento';
+  };
+
+  return (
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
+      {/* Institutional Hero Banner */}
+      <div className="glass-card" style={{
+        background: 'linear-gradient(135deg, var(--primary) 0%, #1e40af 100%)',
+        color: '#fff',
+        padding: '50px 40px',
+        marginBottom: '40px',
+        textAlign: 'center',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Abstract shapes */}
+        <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }}></div>
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '15px' }}>Plataforma de Eventos Acadêmicos G-TERCOA</h1>
+        <p style={{ fontSize: '1.15rem', maxWidth: '800px', margin: '0 auto', color: '#bfdbfe', fontWeight: 300 }}>
+          Descubra e participe de nossos workshops, ciclos de lives, escolas de verão e do DIMA. Gerencie suas inscrições, envie artigos e emita certificados acadêmicos válidos.
+        </p>
+      </div>
+
+      <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '24px', color: 'var(--primary)' }}>Próximas Edições de Eventos</h2>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px' }}>Carregando edições...</div>
+      ) : events.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <Calendar size={48} style={{ color: 'var(--text-muted)', marginBottom: '16px' }} />
+          <h3 style={{ color: 'var(--text-secondary)' }}>Nenhuma edição de evento aberta no momento</h3>
+          <p style={{ color: 'var(--text-muted)' }}>A comissão organizadora do G-TERCOA disponibilizará novos eventos em breve.</p>
+        </div>
+      ) : (
+        <div className="grid-cards">
+          {events.map(event => (
+            <div key={event.id} className="glass-card" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+              <div style={{
+                height: '140px',
+                backgroundImage: `url(${event.banner_url || 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?q=80&w=600&auto=format&fit=crop'})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                position: 'relative'
+              }}>
+                <div style={{ position: 'absolute', top: '12px', left: '12px', zIndex: 10 }}>
+                  <span className="badge badge-primary" style={{ background: '#fff', border: '1px solid var(--border)' }}>
+                    {getFormatName(event.type)}
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '10px', color: 'var(--primary)' }}>{event.name}</h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', flex: 1, marginBottom: '18px' }}>
+                  {event.description ? event.description.substring(0, 140) + '...' : 'Sem descrição disponível.'}
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                  <Calendar size={14} style={{ color: 'var(--accent-light)' }} />
+                  <span>
+                    {new Date(event.start_date).toLocaleDateString('pt-BR')} a {new Date(event.end_date).toLocaleDateString('pt-BR')}
+                  </span>
+                </div>
+                <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
+                  setCurrentEventSlug(event.slug);
+                  setActiveView('event-page');
+                }}>
+                  Acessar Evento
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 2. DETALHES DA EDIÇÃO DO EVENTO (MULTI-TENANT HOME PAGE DE CADA EVENTO)
+function EventEditionView({ event, token, user, setActiveView, showToast, setShowLoginModal }) {
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [submittingReg, setSubmittingReg] = useState(false);
+  const [submissionFile, setSubmissionFile] = useState(null);
+  
+  // Submission Form State
+  const [subTitle, setSubTitle] = useState('');
+  const [subAuthors, setSubAuthors] = useState('');
+  const [subAffiliation, setSubAffiliation] = useState('');
+  const [subAxis, setSubAxis] = useState('');
+  const [submittingWork, setSubmittingWork] = useState(false);
+
+  // Checks if user is already registered to enable submission form
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [registrationId, setRegistrationId] = useState(null);
+  const [checkingReg, setCheckingReg] = useState(true);
+
+  // Activities programming state
+  const [activities, setActivities] = useState([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
+
+  useEffect(() => {
+    checkUserRegistration();
+    fetchActivities();
+  }, [event, user]);
+
+  const fetchActivities = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${event.id}/activities`);
+      if (res.ok) {
+        const data = await res.json();
+        setActivities(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
+
+  const checkUserRegistration = async () => {
+    if (!user || !token) {
+      setIsRegistered(false);
+      setRegistrationId(null);
+      setCheckingReg(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_URL}/api/registrations/my-events`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const userReg = data.find(reg => reg.event_id === event.id);
+        if (userReg) {
+          setIsRegistered(true);
+          setRegistrationId(userReg.id);
+        } else {
+          setIsRegistered(false);
+          setRegistrationId(null);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCheckingReg(false);
+    }
+  };
+
+  const handleRegistration = async (e) => {
+    e.preventDefault();
+    if (!token) {
+      showToast('Por favor, faça login para se inscrever', 'danger');
+      setShowLoginModal(true);
+      return;
+    }
+    if (!selectedCategory) {
+      showToast('Selecione uma categoria de inscrição', 'danger');
+      return;
+    }
+
+    setSubmittingReg(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${event.id}/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ category: selectedCategory })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Inscrição realizada com sucesso! Confirmação gerada.');
+        setIsRegistered(true);
+        setRegistrationId(data.registrationId);
+      } else {
+        showToast(data.error || 'Erro ao realizar inscrição', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao conectar ao servidor', 'danger');
+    } finally {
+      setSubmittingReg(false);
+    }
+  };
+
+  const handleDownloadReceiptPDF = async (regId) => {
+    showToast('Iniciando visualização do comprovante...');
+    try {
+      const response = await fetch(`${API_URL}/api/registrations/${regId}/pdf`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        showToast('Comprovante carregado para visualização!');
+      } else {
+        showToast('Falha ao gerar comprovante de inscrição', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao visualizar comprovante', 'danger');
+    }
+  };
+
+  const handleWorkSubmission = async (e) => {
+    e.preventDefault();
+    if (!token) return;
+    if (!subTitle || !subAuthors || !subAffiliation || !subAxis || !submissionFile) {
+      showToast('Preencha todos os campos e anexe o arquivo', 'danger');
+      return;
+    }
+
+    setSubmittingWork(true);
+    const formData = new FormData();
+    formData.append('title', subTitle);
+    formData.append('authors', subAuthors);
+    formData.append('affiliation', subAffiliation);
+    formData.append('thematic_axis', subAxis);
+    formData.append('file', submissionFile);
+
+    try {
+      const res = await fetch(`${API_URL}/api/events/${event.id}/submissions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Trabalho submetido com sucesso! O comitê irá avaliar.');
+        // reset form
+        setSubTitle('');
+        setSubAuthors('');
+        setSubAffiliation('');
+        setSubAxis('');
+        setSubmissionFile(null);
+      } else {
+        showToast(data.error || 'Erro ao submeter trabalho', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao servidor', 'danger');
+    } finally {
+      setSubmittingWork(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
+      {/* Event Header Banner */}
+      <div className="event-banner" style={{
+        backgroundImage: `url(${event.banner_url || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?q=80&w=1200&auto=format&fit=crop'})`
+      }}>
+        <div className="event-banner-content">
+          <h1 style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: '8px' }}>{event.name}</h1>
+          <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#cbd5e1' }}>
+            <Calendar size={16} />
+            <span>
+              {new Date(event.start_date).toLocaleDateString('pt-BR')} a {new Date(event.end_date).toLocaleDateString('pt-BR')}
+            </span>
+            <span style={{ margin: '0 8px' }}>|</span>
+            <Clock size={16} />
+            <span>Carga Horária: {event.workload_hours}h</span>
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '30px', marginTop: '30px' }}>
+        {/* Left Column: Description & Submissions */}
+        <div>
+          <div className="glass-card" style={{ marginBottom: '30px' }}>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Sobre o Evento</h2>
+            <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>
+              {event.description || 'Nenhuma descrição fornecida para este evento.'}
+            </div>
+            {event.thematic_axes && event.thematic_axes.length > 0 && (
+              <div style={{ marginTop: '24px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px' }}>Eixos Temáticos:</h3>
+                <ul style={{ paddingLeft: '20px', color: 'var(--text-secondary)' }}>
+                  {event.thematic_axes.map((axis, i) => (
+                    <li key={i} style={{ marginBottom: '6px' }}>{axis}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Programação Section */}
+          <div className="glass-card" style={{ marginBottom: '30px' }}>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Programação do Evento</h2>
+            {loadingActivities ? (
+              <div style={{ color: 'var(--text-muted)' }}>Carregando programação...</div>
+            ) : activities.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.95rem' }}>
+                Nenhuma atividade cadastrada na programação até o momento.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {activities.map(act => (
+                  <div key={act.id} style={{ display: 'flex', gap: '15px', borderLeft: '3px solid var(--primary-light)', paddingLeft: '15px', paddingBottom: '5px' }}>
+                    <div style={{ minWidth: '120px' }}>
+                      <div style={{ fontWeight: 'bold', color: 'var(--primary)', fontSize: '0.95rem' }}>
+                        {new Date(act.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        às {new Date(act.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {new Date(act.start_time).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      </div>
+                      <span className="badge badge-primary" style={{ fontSize: '0.65rem', marginTop: '6px', textTransform: 'uppercase' }}>
+                        {act.type.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{act.title}</h3>
+                      {act.description && <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{act.description}</p>}
+                      {act.location && (
+                        <div style={{ fontSize: '0.85rem', color: 'var(--primary-light)', marginTop: '6px' }}>
+                          <strong>Local/Link:</strong> {act.location}
+                        </div>
+                      )}
+                      
+                      {/* Guests list */}
+                      {act.guests && act.guests.length > 0 && (
+                        <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {act.guests.map((g, idx) => (
+                            <div key={idx} style={{
+                              background: g.role === 'palestrante' ? 'rgba(37, 99, 235, 0.05)' : 'rgba(180, 83, 9, 0.05)',
+                              border: `1px solid ${g.role === 'palestrante' ? 'rgba(37, 99, 235, 0.12)' : 'rgba(180, 83, 9, 0.12)'}`,
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              fontSize: '0.8rem'
+                            }}>
+                              <span style={{ fontWeight: 'bold', color: g.role === 'palestrante' ? 'var(--primary-light)' : 'var(--accent)' }}>
+                                {g.role === 'palestrante' ? 'Palestrante: ' : 'Mediador: '}
+                              </span>
+                              <span>{g.name}</span>
+                              {g.institution && <span style={{ color: 'var(--text-muted)' }}> ({g.institution})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Submissions Section */}
+          {checkingReg ? (
+            <div>Verificando sua inscrição...</div>
+          ) : isRegistered ? (
+            <div className="glass-card">
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Submissão de Trabalhos</h2>
+              
+              {/* Fixed ABNT Alert Box */}
+              <div className="abnt-warning-box">
+                <h4>
+                  <Info size={18} />
+                  Atenção às Normas da ABNT
+                </h4>
+                <p>
+                  Todos os resumos expandidos e artigos completos submetidos devem obrigatoriamente estar formatados conforme as diretrizes da **ABNT** (referências conforme NBR 6023, citações conforme NBR 10520 e estrutura geral de artigo científico). Trabalhos fora das normas de formatação serão rejeitados pela comissão examinadora.
+                </p>
+              </div>
+
+              {event.submission_rules && (
+                <div style={{ background: 'var(--surface-secondary)', padding: '16px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.9rem' }}>
+                  <strong>Regras Adicionais do Evento:</strong>
+                  <p style={{ marginTop: '6px', whiteSpace: 'pre-wrap' }}>{event.submission_rules}</p>
+                </div>
+              )}
+
+              <form onSubmit={handleWorkSubmission}>
+                <div className="form-group">
+                  <label className="form-label">Título do Trabalho *</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="Título completo do artigo/resumo" 
+                    required 
+                    value={subTitle}
+                    onChange={(e) => setSubTitle(e.target.value)}
+                  />
+                </div>
+                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label className="form-label">Coautores (opcional)</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="Ex: Maria Silva, João Souza" 
+                      value={subAuthors}
+                      onChange={(e) => setSubAuthors(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Filiação Institucional *</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="Ex: UFC, UECE, IFCE" 
+                      required 
+                      value={subAffiliation}
+                      onChange={(e) => setSubAffiliation(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Eixo Temático *</label>
+                  <select 
+                    className="form-select" 
+                    required
+                    value={subAxis}
+                    onChange={(e) => setSubAxis(e.target.value)}
+                  >
+                    <option value="">Selecione o eixo temático...</option>
+                    {event.thematic_axes.map((axis, i) => (
+                      <option key={i} value={axis}>{axis}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Arquivo de Trabalho (PDF/Word) *</label>
+                  <div style={{
+                    border: '2px dashed var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '24px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    background: submissionFile ? 'rgba(5, 150, 105, 0.05)' : 'transparent',
+                    borderColor: submissionFile ? 'var(--success)' : 'var(--border)',
+                    transition: 'var(--transition-fast)'
+                  }} onClick={() => document.getElementById('file-upload-input').click()}>
+                    <Upload size={32} style={{ color: submissionFile ? 'var(--success)' : 'var(--text-muted)', marginBottom: '8px' }} />
+                    <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>
+                      {submissionFile ? `Arquivo selecionado: ${submissionFile.name}` : 'Arraste ou clique para selecionar arquivo PDF/Word'}
+                    </p>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Máximo 10MB</span>
+                    <input 
+                      type="file" 
+                      id="file-upload-input" 
+                      accept=".pdf,.doc,.docx"
+                      style={{ display: 'none' }} 
+                      onChange={(e) => setSubmissionFile(e.target.files[0])}
+                    />
+                  </div>
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={submittingWork}>
+                  {submittingWork ? 'Submetendo...' : 'Submeter Trabalho para Avaliação'}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="glass-card" style={{ textAlign: 'center', padding: '40px 20px', border: '1px solid var(--border)' }}>
+              <Lock size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+              <h3>Submissão de Trabalhos Restrita</h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginTop: '6px' }}>
+                Você precisa se inscrever neste evento primeiro para poder submeter trabalhos.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Registrations and Details */}
+        <div>
+          {isRegistered ? (
+            <div className="glass-card" style={{ border: '2px solid var(--success)', background: 'rgba(5, 150, 105, 0.02)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--success)', marginBottom: '14px' }}>
+                <CheckCircle size={24} />
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Inscrição Confirmada</h3>
+              </div>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '18px' }}>
+                Sua inscrição para o evento está ativa! Acesse o painel de participantes para ver sua credencial e acessar a área virtual de transmissão.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => {
+                  setActiveView('dashboard');
+                }}>
+                  Acessar Área do Participante
+                </button>
+                {registrationId && (
+                  <button className="btn btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} onClick={() => handleDownloadReceiptPDF(registrationId)}>
+                    <FileText size={16} />
+                    Comprovante de Inscrição (PDF)
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="glass-card">
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Inscrição no Evento</h3>
+              <form onSubmit={handleRegistration}>
+                <div className="form-group">
+                  <label className="form-label">Selecione sua Categoria</label>
+                  <select 
+                    className="form-select" 
+                    required 
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                  >
+                    <option value="">Selecione...</option>
+                    {event.registration_categories && event.registration_categories.map((cat, i) => (
+                      <option key={i} value={cat.name}>
+                        {cat.name} {cat.price > 0 ? `- R$ ${cat.price.toFixed(2)}` : '(Gratuito)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="btn btn-accent" style={{ width: '100%' }} disabled={submittingReg}>
+                  {submittingReg ? 'Realizando inscrição...' : 'Garantir Minha Vaga'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Quick info details */}
+          <div className="glass-card" style={{ marginTop: '20px', fontSize: '0.9rem' }}>
+            <h4 style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Informações Acadêmicas</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'var(--text-secondary)' }}>
+              <div><strong>Formato:</strong> {event.type === 'live_cycle' ? 'Ciclo de Lives (Virtual)' : event.type === 'school_of_summer' ? 'Escola de Verão' : event.type === 'dima' ? 'DIMA (Presencial/Híbrido)' : 'Workshop'}</div>
+              <div><strong>Carga Horária:</strong> {event.workload_hours} horas</div>
+              <div><strong>Certificado:</strong> Incluso (mediante check-in presencial ou virtual)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 3. VALIDAR CERTIFICADOS
+function CertificateVerifyView({ showToast }) {
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [certData, setCertData] = useState(null);
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    if (!code) return;
+    setLoading(true);
+    setCertData(null);
+
+    try {
+      const res = await fetch(`${API_URL}/api/certificates/verify/${code.trim().toUpperCase()}`);
+      const data = await res.json();
+      if (res.ok) {
+        setCertData(data);
+        showToast('Certificado válido encontrado!');
+      } else {
+        showToast(data.error || 'Código inválido ou inexistente', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao validar certificado', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: '600px', margin: '60px auto', padding: '0 20px' }}>
+      <div className="glass-card">
+        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+          <Award size={48} style={{ color: 'var(--accent-light)', marginBottom: '12px' }} />
+          <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)' }}>Validar Certificado G-TERCOA</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+            Insira o código verificador impresso no rodapé do certificado para conferir sua autenticidade.
+          </p>
+        </div>
+
+        <form onSubmit={handleVerify}>
+          <div className="form-group">
+            <input 
+              type="text" 
+              className="form-input" 
+              style={{ textAlign: 'center', fontSize: '1.25rem', letterSpacing: '1px', fontWeight: 600, textTransform: 'uppercase' }}
+              placeholder="Ex: GTERCOA-ABC123" 
+              required
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px' }} disabled={loading}>
+            {loading ? 'Verificando...' : 'Verificar Autenticidade'}
+          </button>
+        </form>
+
+        {certData && (
+          <div style={{ marginTop: '30px', padding: '20px', border: '2px solid var(--success)', borderRadius: 'var(--radius-sm)', background: 'rgba(5, 150, 105, 0.02)' }}>
+            <h3 style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.15rem', marginBottom: '12px' }}>
+              <CheckCircle size={18} />
+              Certificado Autêntico e Válido
+            </h3>
+            <table style={{ width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Participante:</td><td style={{ padding: '8px 0', fontWeight: 600 }}>{certData.user_name}</td></tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>CPF:</td><td style={{ padding: '8px 0' }}>{certData.user_cpf}</td></tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Evento:</td><td style={{ padding: '8px 0', fontWeight: 600 }}>{certData.event_name}</td></tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Carga Horária:</td><td style={{ padding: '8px 0' }}>{certData.workload_hours} horas</td></tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Período:</td><td style={{ padding: '8px 0' }}>{new Date(certData.start_date).toLocaleDateString('pt-BR')} a {new Date(certData.end_date).toLocaleDateString('pt-BR')}</td></tr>
+                <tr><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Código Verificador:</td><td style={{ padding: '8px 0', fontWeight: 'bold', color: 'var(--primary)' }}>{certData.verification_code}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 4. DASHBOARD ROUTER AND RBAC VIEWS
+function DashboardRouter({ user, token, subView, setSubView, showToast }) {
+  return (
+    <div className="dashboard-grid">
+      {/* Sidebar Navigation */}
+      <aside className="dashboard-sidebar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '30px', padding: '0 10px' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justify: 'center', fontWeight: 'bold' }}>
+            {user.name.charAt(0)}
+          </div>
+          <div>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 700 }}>{user.name}</h4>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'capitalize' }}>Painel {user.role}</span>
+          </div>
+        </div>
+
+        {/* Dynamic Sidebar Links depending on Role */}
+        {user.role === 'admin' && (
+          <>
+            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Comissão</div>
+            <a href="#" className={`sidebar-link ${subView === 'admin-metrics' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('admin-metrics'); }}>
+              <LayoutDashboard size={18} /> Métrica Geral
+            </a>
+            <a href="#" className={`sidebar-link ${subView === 'admin-events' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('admin-events'); }}>
+              <Calendar size={18} /> Workspace Eventos
+            </a>
+          </>
+        )}
+ 
+        {user.role === 'evaluator' && (
+          <>
+            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Avaliador</div>
+            <a href="#" className={`sidebar-link ${subView === 'evaluator-reviews' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('evaluator-reviews'); }}>
+              <FileText size={18} /> Avaliar Trabalhos
+            </a>
+          </>
+        )}
+ 
+        {/* All users have access to Participant section */}
+        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Participante</div>
+        <a href="#" className={`sidebar-link ${subView === 'participant-events' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-events'); }}>
+          <Calendar size={18} /> Minhas Inscrições
+        </a>
+        <a href="#" className={`sidebar-link ${subView === 'participant-submissions' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-submissions'); }}>
+          <FileText size={18} /> Minhas Submissões
+        </a>
+        <a href="#" className={`sidebar-link ${subView === 'participant-certificates' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-certificates'); }}>
+          <Award size={18} /> Meus Certificados
+        </a>
+      </aside>
+ 
+      {/* Main Dashboard Content Area */}
+      <section className="dashboard-content">
+        {subView === 'participant-events' && <ParticipantEventsView user={user} token={token} showToast={showToast} />}
+        {subView === 'participant-submissions' && <ParticipantSubmissionsView token={token} />}
+        {subView === 'participant-certificates' && <ParticipantCertificatesView token={token} showToast={showToast} />}
+        {subView === 'evaluator-reviews' && <EvaluatorReviewsView token={token} showToast={showToast} />}
+        {subView === 'admin-metrics' && <AdminMetricsView token={token} />}
+        {subView === 'admin-events' && <AdminEventsView token={token} showToast={showToast} />}
+      </section>
+    </div>
+  );
+}
+
+// ==========================================
+// PARTICIPANT DASHBOARD MODULES
+// ==========================================
+
+// A. PARTICIPANT ENROLLED EVENTS & VIRTUAL TRANSMISSION
+function ParticipantEventsView({ user, token, showToast }) {
+  const [registrations, setRegistrations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedLiveEvent, setSelectedLiveEvent] = useState(null);
+  const [walletReg, setWalletReg] = useState(null);
+  
+  const handleDownloadReceiptPDF = async (regId) => {
+    showToast('Iniciando visualização do comprovante...');
+    try {
+      const response = await fetch(`${API_URL}/api/registrations/${regId}/pdf`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        showToast('Comprovante carregado para visualização!');
+      } else {
+        showToast('Falha ao gerar comprovante de inscrição', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao visualizar comprovante', 'danger');
+    }
+  };
+
+  // Live Chat state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+
+  useEffect(() => {
+    fetchMyEvents();
+  }, []);
+
+  // Poll for messages when in live event
+  useEffect(() => {
+    let interval;
+    if (selectedLiveEvent) {
+      // Simulate live message polling
+      interval = setInterval(() => {
+        const mockQuestions = [
+          "Como será a disponibilização dos slides?",
+          "Parabéns pela excelente explanação do tema!",
+          "Qual é o livro de referência sugerido para essa pesquisa?",
+          "O check-in virtual é computado automaticamente?"
+        ];
+        const randomMsg = mockQuestions[Math.floor(Math.random() * mockQuestions.length)];
+        const names = ["Ana Clara", "Dr. Marcos", "Patrícia Lima", "Roberto Oliveira"];
+        
+        setChatMessages(prev => [
+          ...prev, 
+          { id: Date.now(), user: names[Math.floor(Math.random() * names.length)], text: randomMsg, timestamp: new Date().toLocaleTimeString() }
+        ]);
+      }, 9000);
+    }
+    return () => clearInterval(interval);
+  }, [selectedLiveEvent]);
+
+  const fetchMyEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/registrations/my-events`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRegistrations(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendChatMessage = (e) => {
+    e.preventDefault();
+    if (!newMessage.trim()) return;
+    setChatMessages(prev => [
+      ...prev,
+      { id: Date.now(), user: "Você", text: newMessage, timestamp: new Date().toLocaleTimeString(), isSelf: true }
+    ]);
+    setNewMessage('');
+  };
+
+  const getYoutubeEmbed = (url) => {
+    if (!url) return '';
+    // Extract video ID from youtube URL
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    const videoId = (match && match[2].length === 11) ? match[2] : null;
+    return videoId ? `https://www.youtube.com/embed/${videoId}` : null;
+  };
+
+  if (selectedLiveEvent) {
+    const embedUrl = getYoutubeEmbed(selectedLiveEvent.transmission_link);
+    return (
+      <div>
+        <button className="btn btn-secondary" style={{ marginBottom: '20px' }} onClick={() => setSelectedLiveEvent(null)}>
+          Voltar para Inscrições
+        </button>
+        <h2 style={{ fontSize: '1.6rem', color: 'var(--primary)', marginBottom: '10px' }}>{selectedLiveEvent.event_name}</h2>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', minHeight: '500px' }}>
+          {/* Stream Video Player container */}
+          <div className="glass-card" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ background: '#000', width: '100%', aspectRatio: '16/9', position: 'relative' }}>
+              {embedUrl ? (
+                <iframe 
+                  width="100%" 
+                  height="100%" 
+                  src={embedUrl} 
+                  title="YouTube video player" 
+                  frameBorder="0" 
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen
+                  style={{ position: 'absolute', top: 0, left: 0 }}
+                ></iframe>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
+                  <Video size={48} style={{ marginBottom: '12px' }} />
+                  <p>Link de transmissão ainda não configurado para esta live.</p>
+                  {selectedLiveEvent.transmission_link && (
+                    <a href={selectedLiveEvent.transmission_link} target="_blank" rel="noreferrer" style={{ marginTop: '10px', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      Acessar link externo <ExternalLink size={14} />
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '20px' }}>
+              <span className="badge badge-success" style={{ marginBottom: '8px' }}>Transmissão Ativa</span>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+                Assista ao Ciclo de Lives e participe enviando suas dúvidas na caixa ao lado. Seu credenciamento virtual é gerado com base no check-in do administrador.
+              </p>
+            </div>
+          </div>
+
+          {/* Interactive Q&A / Chat Module */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', padding: '0', height: '100%' }}>
+            <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-secondary)' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary)' }}>Perguntas e Chat</h3>
+            </div>
+            
+            <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '350px' }}>
+              {chatMessages.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '40px' }}>
+                  Nenhuma pergunta enviada ainda. Seja o primeiro!
+                </div>
+              ) : (
+                chatMessages.map(msg => (
+                  <div key={msg.id} style={{
+                    background: msg.isSelf ? 'rgba(37, 99, 235, 0.06)' : 'var(--surface-secondary)',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    alignSelf: msg.isSelf ? 'flex-end' : 'flex-start',
+                    maxWidth: '85%'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)' }}>
+                      <span>{msg.user}</span>
+                      <span style={{ fontWeight: 'normal', color: 'var(--text-muted)' }}>{msg.timestamp}</span>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', marginTop: '4px', wordBreak: 'break-word' }}>{msg.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form onSubmit={handleSendChatMessage} style={{ padding: '12px', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Faça uma pergunta ou comente..."
+                style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+              />
+              <button type="submit" className="btn btn-primary" style={{ padding: '8px 12px' }}>
+                <Send size={16} />
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '24px' }}>Minhas Inscrições</h2>
+      {loading ? (
+        <div>Carregando inscrições...</div>
+      ) : registrations.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Você ainda não se inscreveu em nenhuma edição de evento.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {registrations.map(reg => (
+            <div key={reg.id} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <span className="badge badge-primary" style={{ marginBottom: '8px' }}>
+                  {reg.type === 'live_cycle' ? 'Ciclo de Lives' : 'Evento'}
+                </span>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{reg.event_name}</h3>
+                <div style={{ display: 'flex', gap: '15px', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px' }}>
+                  <span>Categoria: <strong>{reg.category}</strong></span>
+                  <span>Inscrito em: {new Date(reg.created_at).toLocaleDateString('pt-BR')}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {reg.type === 'live_cycle' && (
+                  <button className="btn btn-accent" onClick={() => setSelectedLiveEvent(reg)}>
+                    <Video size={18} />
+                    Entrar na Transmissão
+                  </button>
+                )}
+                {/* Visual QR Ticket code simulation */}
+                <button className="btn btn-secondary" onClick={() => setWalletReg(reg)}>
+                  <QrCode size={18} />
+                  Ver QR Credencial
+                </button>
+                <button className="btn btn-primary" onClick={() => handleDownloadReceiptPDF(reg.id)}>
+                  <FileText size={18} />
+                  Comprovante PDF
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Mobile Wallet Pass Modal */}
+      {walletReg && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.8)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+          animation: 'modalEnter 0.25s ease-out'
+        }} onClick={() => setWalletReg(null)}>
+          <div style={{
+            width: '340px',
+            background: 'linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            color: '#fff',
+            overflow: 'hidden',
+            position: 'relative'
+          }} onClick={(e) => e.stopPropagation()}>
+            
+            {/* Ticket Header */}
+            <div style={{ padding: '20px 24px', background: 'rgba(255, 255, 255, 0.03)', borderBottom: '1px dashed rgba(255,255,255,0.15)', textAlign: 'center', position: 'relative' }}>
+              <span style={{ fontSize: '0.75rem', letterSpacing: '2px', color: '#93c5fd', fontWeight: 'bold', textTransform: 'uppercase' }}>G-TERCOA EVENTOS</span>
+              <h4 style={{ margin: '4px 0 0', fontSize: '1.1rem', fontWeight: 800 }}>Credencial Digital</h4>
+            </div>
+            
+            {/* Ticket Body */}
+            <div style={{ padding: '24px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>Evento</span>
+                <h3 style={{ margin: '4px 0 0', fontSize: '1.25rem', fontWeight: 800, color: '#f59e0b' }}>{walletReg.event_name}</h3>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '15px', marginBottom: '25px', background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div>
+                  <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase' }}>Participante</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#fff' }}>{user ? user.name : 'Participante'}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase' }}>CPF</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{user ? user.cpf : ''}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase' }}>Categoria</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#10b981' }}>{walletReg.category}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dashed ripped line separator */}
+              <div style={{ display: 'flex', alignItems: 'center', margin: '0 -24px 20px', position: 'relative' }}>
+                <div style={{ width: '12px', height: '24px', background: 'rgba(15, 23, 42, 0.8)', borderRadius: '0 12px 12px 0', border: '1px solid rgba(255, 255, 255, 0.1)', borderLeft: 'none' }}></div>
+                <div style={{ flex: 1, borderTop: '2px dashed rgba(255,255,255,0.15)', margin: '0 8px' }}></div>
+                <div style={{ width: '12px', height: '24px', background: 'rgba(15, 23, 42, 0.8)', borderRadius: '12px 0 0 12px', border: '1px solid rgba(255, 255, 255, 0.1)', borderRight: 'none' }}></div>
+              </div>
+
+              {/* QR Code */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ background: '#fff', padding: '12px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)' }}>
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${walletReg.id}`} 
+                    alt="QR Code Credencial" 
+                    style={{ display: 'block', width: '160px', height: '160px' }}
+                  />
+                </div>
+                <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#94a3b8', marginTop: '12px', letterSpacing: '1px' }}>
+                  ID: {walletReg.id.substring(0, 8)}...
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px', textAlign: 'center' }}>
+                  Apresente este QR Code no credenciamento para realizar check-in rápido
+                </span>
+              </div>
+            </div>
+            
+            {/* Close Button */}
+            <button 
+              style={{
+                width: '100%',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: 'none',
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '16px',
+                color: '#fff',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+              onClick={() => setWalletReg(null)}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.1)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.05)'}
+            >
+              Fechar Credencial
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// B. PARTICIPANT SUBMISSIONS VIEW
+function ParticipantSubmissionsView({ token }) {
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchSubmissions();
+  }, []);
+
+  const fetchSubmissions = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/submissions/my-submissions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissions(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const badges = {
+      'under_review': <span className="badge badge-warning">Sob Revisão</span>,
+      'accepted': <span className="badge badge-success">Aceito</span>,
+      'accepted_with_remarks': <span className="badge badge-primary">Aceito com Ressalvas</span>,
+      'rejected': <span className="badge badge-danger">Rejeitado</span>
+    };
+    return badges[status] || <span className="badge">{status}</span>;
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '24px' }}>Minhas Submissões</h2>
+      {loading ? (
+        <div>Carregando submissões...</div>
+      ) : submissions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Você ainda não enviou nenhum trabalho acadêmico.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table className="custom-table">
+            <thead>
+              <tr>
+                <th>Evento</th>
+                <th>Título do Trabalho</th>
+                <th>Eixo Temático</th>
+                <th>Arquivo</th>
+                <th>Status</th>
+                <th>Parecer / Observações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {submissions.map(sub => (
+                <tr key={sub.id}>
+                  <td style={{ fontWeight: 600 }}>{sub.event_name}</td>
+                  <td>
+                    <div>{sub.title}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Coautores: {sub.authors || 'Nenhum'}</div>
+                  </td>
+                  <td>{sub.thematic_axis}</td>
+                  <td>
+                    <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <FileText size={14} /> Download
+                    </a>
+                  </td>
+                  <td>{getStatusBadge(sub.status)}</td>
+                  <td>
+                    {sub.review_comments ? (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sub.review_comments}</span>
+                    ) : (
+                      <span style={{ fontStyle: 'italic', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Sem comentários adicionais.</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// C. PARTICIPANT CERTIFICATES VIEW
+function ParticipantCertificatesView({ token, showToast }) {
+  const [certs, setCerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchCertificates();
+  }, []);
+
+  const fetchCertificates = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/certificates/user`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCerts(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = async (certId, code) => {
+    showToast('Iniciando visualização do certificado...');
+    try {
+      const response = await fetch(`${API_URL}/api/certificates/${certId}/pdf`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        showToast('Certificado carregado para visualização!');
+      } else {
+        showToast('Falha ao gerar PDF do certificado', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao visualizar certificado', 'danger');
+    }
+  };
+
+  const getCertTypeLabel = (type) => {
+    const labels = {
+      'participation': 'Participação',
+      'organization': 'Comissão Organizadora',
+      'presentation': 'Apresentação de Trabalho',
+      'guest': 'Convidado / Palestrante'
+    };
+    return labels[type] || 'Participação';
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '24px' }}>Meus Certificados</h2>
+      {loading ? (
+        <div>Carregando certificados...</div>
+      ) : certs.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Nenhum certificado disponível para download.</p>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Nota: Certificados são emitidos pela organização após a confirmação do seu check-in.
+          </span>
+        </div>
+      ) : (
+        <div className="grid-cards">
+          {certs.map(cert => (
+            <div key={cert.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <Award size={32} style={{ color: 'var(--accent-light)', marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--primary)' }}>{cert.event_name}</h3>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                  <div>Tipo: <strong style={{ color: 'var(--primary-light)' }}>{getCertTypeLabel(cert.type)}</strong></div>
+                  {cert.presentation_title && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px', fontStyle: 'italic' }} title={cert.presentation_title}>Artigo: {cert.presentation_title}</div>}
+                  <div style={{ marginTop: '4px' }}>Carga Horária: <strong>{cert.workload_hours} horas</strong></div>
+                  <div>Emissão: {new Date(cert.created_at).toLocaleDateString('pt-BR')}</div>
+                  <div style={{ fontFamily: 'monospace', marginTop: '6px', background: 'var(--surface-secondary)', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' }}>
+                    Cód: {cert.verification_code}
+                  </div>
+                </div>
+              </div>
+              <button className="btn btn-primary" style={{ width: '100%', marginTop: '20px' }} onClick={() => handleDownloadPDF(cert.id, cert.verification_code)}>
+                Visualizar PDF
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// EVALUATOR PORTAL
+// ==========================================
+function EvaluatorReviewsView({ token, showToast }) {
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSub, setSelectedSub] = useState(null);
+  
+  // Evaluation fields
+  const [status, setStatus] = useState('');
+  const [comments, setComments] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+
+  useEffect(() => {
+    fetchSubmissionsToReview();
+  }, []);
+
+  const fetchSubmissionsToReview = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/submissions/to-review`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissions(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitReview = async (e) => {
+    e.preventDefault();
+    if (!status) {
+      showToast('Selecione o status do parecer', 'danger');
+      return;
+    }
+    setSubmittingReview(true);
+    try {
+      const res = await fetch(`${API_URL}/api/submissions/${selectedSub.id}/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status, review_comments: comments })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Parecer acadêmico enviado com sucesso!');
+        setSelectedSub(null);
+        setStatus('');
+        setComments('');
+        fetchSubmissionsToReview();
+      } else {
+        showToast(data.error || 'Erro ao enviar parecer', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede', 'danger');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '24px' }}>Avaliar Trabalhos Científicos</h2>
+      
+      {selectedSub && (
+        <div className="glass-card" style={{ marginBottom: '30px', border: '1px solid var(--primary-light)' }}>
+          <h3 style={{ fontSize: '1.3rem', color: 'var(--primary)', marginBottom: '14px' }}>Emitir Parecer: {selectedSub.title}</h3>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', fontSize: '0.9rem', marginBottom: '20px', background: 'var(--surface-secondary)', padding: '15px', borderRadius: 'var(--radius-sm)' }}>
+            <div>
+              <div><strong>Evento:</strong> {selectedSub.event_name}</div>
+              <div><strong>Autor Principal:</strong> {selectedSub.submitter_name}</div>
+            </div>
+            <div>
+              <div><strong>Eixo Temático:</strong> {selectedSub.thematic_axis}</div>
+              <div>
+                <strong>Trabalho Escrito:</strong>{' '}
+                <a href={`${API_URL}${selectedSub.file_path}`} target="_blank" rel="noreferrer" style={{ fontWeight: 'bold' }}>
+                  Baixar Documento
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmitReview}>
+            <div className="form-group">
+              <label className="form-label">Resultado da Avaliação *</label>
+              <select className="form-select" required value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="">Selecione...</option>
+                <option value="accepted">Aceito</option>
+                <option value="accepted_with_remarks">Aceito com Ressalvas</option>
+                <option value="rejected">Rejeitado</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Justificativa e Comentários Acadêmicos *</label>
+              <textarea 
+                className="form-input" 
+                style={{ minHeight: '100px' }} 
+                placeholder="Insira as correções necessárias, sugestões de ABNT e notas detalhadas de revisão..."
+                required
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="submit" className="btn btn-primary" disabled={submittingReview}>
+                {submittingReview ? 'Enviando...' : 'Confirmar e Enviar Parecer'}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setSelectedSub(null)}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {loading ? (
+        <div>Carregando trabalhos alocados...</div>
+      ) : submissions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Você não possui trabalhos designados para avaliação pendente.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table className="custom-table">
+            <thead>
+              <tr>
+                <th>Evento</th>
+                <th>Título</th>
+                <th>Eixo Temático</th>
+                <th>Data de Envio</th>
+                <th>Status Atual</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {submissions.map(sub => (
+                <tr key={sub.id}>
+                  <td>{sub.event_name}</td>
+                  <td style={{ fontWeight: 600 }}>{sub.title}</td>
+                  <td>{sub.thematic_axis}</td>
+                  <td>{new Date(sub.created_at).toLocaleDateString('pt-BR')}</td>
+                  <td>
+                    <span className={`badge ${
+                      sub.status === 'under_review' ? 'badge-warning' : sub.status === 'accepted' ? 'badge-success' : sub.status === 'rejected' ? 'badge-danger' : 'badge-primary'
+                    }`}>
+                      {sub.status === 'under_review' ? 'Sob Avaliação' : sub.status}
+                    </span>
+                  </td>
+                  <td>
+                    <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => setSelectedSub(sub)}>
+                      Avaliar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// ADMIN PORTAL MODULES
+// ==========================================
+
+// A. METRICS VIEW
+function AdminMetricsView({ token }) {
+  const [metrics, setMetrics] = useState({
+    eventsCount: 0,
+    regsCount: 0,
+    checkinCount: 0,
+    submissionsCount: 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchMetrics();
+  }, []);
+
+  const fetchMetrics = async () => {
+    try {
+      const resEvents = await fetch(`${API_URL}/api/events`);
+      const events = await resEvents.json();
+      
+      let totalRegs = 0;
+      let totalCheckins = 0;
+      let totalSubmissions = 0;
+
+      for (const ev of events) {
+        const resRegs = await fetch(`${API_URL}/api/events/${ev.id}/registrations`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const regs = await resRegs.json();
+        totalRegs += regs.length;
+        totalCheckins += regs.filter(r => r.checked_in === 1).length;
+
+        const resSub = await fetch(`${API_URL}/api/events/${ev.id}/submissions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const subs = await resSub.json();
+        totalSubmissions += subs.length;
+      }
+
+      setMetrics({
+        eventsCount: events.length,
+        regsCount: totalRegs,
+        checkinCount: totalCheckins,
+        submissionsCount: totalSubmissions
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return <div>Carregando métricas...</div>;
+
+  const attendanceRate = metrics.regsCount > 0 ? Math.round((metrics.checkinCount / metrics.regsCount) * 100) : 0;
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '24px' }}>Métricas do G-TERCOA</h2>
+      
+      {/* Metrics Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        <div className="metric-card">
+          <div>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Edições de Eventos</span>
+            <div className="metric-number">{metrics.eventsCount}</div>
+          </div>
+          <div className="metric-icon-box" style={{ background: 'rgba(37, 99, 235, 0.1)', color: 'var(--primary-light)' }}>
+            <Calendar size={24} />
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Total de Inscritos</span>
+            <div className="metric-number">{metrics.regsCount}</div>
+          </div>
+          <div className="metric-icon-box" style={{ background: 'rgba(180, 83, 9, 0.1)', color: 'var(--accent)' }}>
+            <Users size={24} />
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Trabalhos Submetidos</span>
+            <div className="metric-number">{metrics.submissionsCount}</div>
+          </div>
+          <div className="metric-icon-box" style={{ background: 'rgba(5, 150, 105, 0.1)', color: 'var(--success)' }}>
+            <FileText size={24} />
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Taxa de Presença</span>
+            <div className="metric-number">{attendanceRate}%</div>
+          </div>
+          <div className="metric-icon-box" style={{ background: 'rgba(13, 148, 136, 0.1)', color: '#0d9488' }}>
+            <CheckCircle size={24} />
+          </div>
+        </div>
+      </div>
+
+      {/* Visual Graphical charts using Custom inline SVGs & CSS bar charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.15rem', color: 'var(--primary)', marginBottom: '20px' }}>Comparecimento vs Credenciados</h3>
+          
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '220px', gap: '40px' }}>
+            {/* SVG Donut Chart */}
+            <svg width="150" height="150" viewBox="0 0 36 36" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="18" cy="18" r="15.915" fill="none" stroke="#e2e8f0" strokeWidth="3" />
+              <circle 
+                cx="18" 
+                cy="18" 
+                r="15.915" 
+                fill="none" 
+                stroke="var(--success)" 
+                strokeWidth="3.5" 
+                strokeDasharray={`${attendanceRate} ${100 - attendanceRate}`} 
+                strokeDashoffset="0" 
+              />
+            </svg>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                <div style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '3px' }}></div>
+                <span>Credenciados: <strong>{metrics.checkinCount}</strong></span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                <div style={{ width: '12px', height: '12px', background: '#e2e8f0', borderRadius: '3px' }}></div>
+                <span>Ausentes: <strong>{metrics.regsCount - metrics.checkinCount}</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.15rem', color: 'var(--primary)', marginBottom: '20px' }}>Volume Acadêmico por Categoria</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: '220px', justifyContent: 'center' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+                <span>Artigos / Resumos</span>
+                <strong>{metrics.submissionsCount}</strong>
+              </div>
+              <div style={{ height: '8px', background: 'var(--surface-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--primary-light)', width: `${Math.min(100, (metrics.submissionsCount / 20) * 100)}%`, borderRadius: '4px' }}></div>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+                <span>Inscrições Efetuadas</span>
+                <strong>{metrics.regsCount}</strong>
+              </div>
+              <div style={{ height: '8px', background: 'var(--surface-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--accent)', width: `${Math.min(100, (metrics.regsCount / 50) * 100)}%`, borderRadius: '4px' }}></div>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+                <span>Canais de Comunicação</span>
+                <strong>{metrics.eventsCount} Edições</strong>
+              </div>
+              <div style={{ height: '8px', background: 'var(--surface-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: '#0d9488', width: `${Math.min(100, (metrics.eventsCount / 10) * 100)}%`, borderRadius: '4px' }}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// B. EVENT BUILDER
+function AdminEventsView({ token, showToast }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Selection / Workspace Navigation State
+  const [selectedEventForManagement, setSelectedEventForManagement] = useState(null);
+  const [workspaceTab, setWorkspaceTab] = useState('basic');
+
+  // Event Form State (Basic information)
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [type, setType] = useState('workshop');
+  const [description, setDescription] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [location, setLocation] = useState('Auditório Principal');
+
+  // Incremental configurations
+  const [bannerUrl, setBannerUrl] = useState('');
+  const [workloadHours, setWorkloadHours] = useState('20');
+  const [transmissionLink, setTransmissionLink] = useState('');
+  const [thematicAxes, setThematicAxes] = useState('');
+  const [submissionRules, setSubmissionRules] = useState('');
+  const [submissionsEnabled, setSubmissionsEnabled] = useState(1);
+
+  // Tickets / Categories
+  const [regCategories, setRegCategories] = useState([
+    { name: 'Graduando', price: 0 },
+    { name: 'Professor da Educação Básica', price: 0 },
+    { name: 'Pesquisador', price: 50.00 }
+  ]);
+
+  // Guests list & Form state
+  const [guestsList, setGuestsList] = useState([]);
+  const [newGuestName, setNewGuestName] = useState('');
+  const [newGuestRole, setNewGuestRole] = useState('palestrante');
+  const [newGuestInstitution, setNewGuestInstitution] = useState('');
+  const [newGuestImageUrl, setNewGuestImageUrl] = useState('');
+  const [isUploadingGuestImage, setIsUploadingGuestImage] = useState(false);
+
+  // Certificate Customization State
+  const [certBorderColor, setCertBorderColor] = useState('#1A365D');
+  const [certSignatureName, setCertSignatureName] = useState('Comissão Organizadora G-TERCOA');
+  const [certSignatureRole, setCertSignatureRole] = useState('Coordenador Geral');
+  
+  // Text templates for the 4 certificate types
+  const [certTextTemplate, setCertTextTemplate] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.');
+  const [certTextOrganization, setCertTextOrganization] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.');
+  const [certTextPresentation, setCertTextPresentation] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.');
+  const [certTextGuest, setCertTextGuest] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.');
+
+  // Issuance and preview lists
+  const [issueUserEmail, setIssueUserEmail] = useState('');
+  const [issueCertType, setIssueCertType] = useState('organization');
+  const [issueWorkload, setIssueWorkload] = useState('20');
+  const [issuePresentationTitle, setIssuePresentationTitle] = useState('');
+  const [certificatesList, setCertificatesList] = useState([]);
+  const [isIssuing, setIsIssuing] = useState(false);
+  const [registrationsList, setRegistrationsList] = useState([]);
+  const [submissionsList, setSubmissionsList] = useState([]);
+
+  // Load events list on mount
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events`);
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(data);
+        
+        // If an event is selected, keep it updated
+        if (selectedEventForManagement) {
+          const current = data.find(ev => ev.id === selectedEventForManagement.id);
+          if (current) {
+            setSelectedEventForManagement(current);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectEventForManagement = (ev) => {
+    setSelectedEventForManagement(ev);
+    setWorkspaceTab('basic');
+
+    // Populate states
+    setName(ev.name || '');
+    setSlug(ev.slug || '');
+    setType(ev.type || 'workshop');
+    setDescription(ev.description || '');
+    setBannerUrl(ev.banner_url || '');
+    setStartDate(ev.start_date || '');
+    setEndDate(ev.end_date || '');
+    setLocation(ev.location || 'Auditório Principal');
+
+    setWorkloadHours(ev.workload_hours ? ev.workload_hours.toString() : '20');
+    setTransmissionLink(ev.transmission_link || '');
+    setThematicAxes(ev.thematic_axes ? ev.thematic_axes.join(', ') : '');
+    setSubmissionRules(ev.submission_rules || '');
+    setSubmissionsEnabled(ev.submissions_enabled !== undefined ? ev.submissions_enabled : 1);
+
+    setRegCategories(ev.registration_categories || [
+      { name: 'Graduando', price: 0 },
+      { name: 'Professor da Educação Básica', price: 0 },
+      { name: 'Pesquisador', price: 50.00 }
+    ]);
+
+    // Parse guests
+    let parsedGuests = [];
+    if (ev.guests) {
+      try {
+        parsedGuests = typeof ev.guests === 'string' ? JSON.parse(ev.guests) : ev.guests;
+      } catch (e) {
+        console.error('Error parsing guests JSON', e);
+      }
+    }
+    setGuestsList(parsedGuests);
+
+    setCertBorderColor(ev.cert_border_color || '#1A365D');
+    setCertSignatureName(ev.cert_signature_name || 'Comissão Organizadora G-TERCOA');
+    setCertSignatureRole(ev.cert_signature_role || 'Coordenador Geral');
+    setCertTextTemplate(ev.cert_text_template || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.');
+    setCertTextOrganization(ev.cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.');
+    setCertTextPresentation(ev.cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.');
+    setCertTextGuest(ev.cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.');
+
+    // Fetch lists
+    fetchCertificates(ev.id);
+    fetchRegistrations(ev.id);
+    fetchSubmissions(ev.id);
+  };
+
+  const fetchCertificates = async (eventId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/certificates`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCertificatesList(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchRegistrations = async (eventId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/registrations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRegistrationsList(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchSubmissions = async (eventId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/submissions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissionsList(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCreateEventSubmit = async (e) => {
+    e.preventDefault();
+    if (!name || !slug || !startDate || !endDate) {
+      showToast('Preencha os campos obrigatórios (*)', 'danger');
+      return;
+    }
+
+    const payload = {
+      name,
+      slug,
+      type,
+      description,
+      start_date: startDate,
+      end_date: endDate,
+      location
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/api/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Edição do evento criada com sucesso!');
+        resetCreationForm();
+        fetchEvents();
+      } else {
+        showToast(data.error || 'Erro ao criar evento', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão', 'danger');
+    }
+  };
+
+  const saveEventDetails = async (overrides = {}) => {
+    const payload = {
+      name: overrides.name !== undefined ? overrides.name : name,
+      slug: overrides.slug !== undefined ? overrides.slug : slug,
+      type: overrides.type !== undefined ? overrides.type : type,
+      description: overrides.description !== undefined ? overrides.description : description,
+      banner_url: overrides.banner_url !== undefined ? overrides.banner_url : bannerUrl,
+      start_date: overrides.start_date !== undefined ? overrides.start_date : startDate,
+      end_date: overrides.end_date !== undefined ? overrides.end_date : endDate,
+      thematic_axes: overrides.thematic_axes !== undefined ? overrides.thematic_axes : thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+      registration_categories: overrides.registration_categories !== undefined ? overrides.registration_categories : regCategories,
+      submission_rules: overrides.submission_rules !== undefined ? overrides.submission_rules : submissionRules,
+      workload_hours: overrides.workload_hours !== undefined ? parseInt(overrides.workload_hours) || parseInt(workloadHours) : parseInt(workloadHours),
+      transmission_link: overrides.transmission_link !== undefined ? overrides.transmission_link : transmissionLink,
+      cert_border_color: overrides.cert_border_color !== undefined ? overrides.cert_border_color : certBorderColor,
+      cert_signature_name: overrides.cert_signature_name !== undefined ? overrides.cert_signature_name : certSignatureName,
+      cert_signature_role: overrides.cert_signature_role !== undefined ? overrides.cert_signature_role : certSignatureRole,
+      cert_text_template: overrides.cert_text_template !== undefined ? overrides.cert_text_template : certTextTemplate,
+      location: overrides.location !== undefined ? overrides.location : location,
+      guests: overrides.guests !== undefined ? overrides.guests : guestsList,
+      submissions_enabled: overrides.submissions_enabled !== undefined ? overrides.submissions_enabled : submissionsEnabled,
+      cert_text_organization: overrides.cert_text_organization !== undefined ? overrides.cert_text_organization : certTextOrganization,
+      cert_text_presentation: overrides.cert_text_presentation !== undefined ? overrides.cert_text_presentation : certTextPresentation,
+      cert_text_guest: overrides.cert_text_guest !== undefined ? overrides.cert_text_guest : certTextGuest
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Evento atualizado com sucesso!');
+        const updated = { ...selectedEventForManagement, ...payload, guests: JSON.stringify(payload.guests) };
+        setSelectedEventForManagement(updated);
+        fetchEvents();
+        return true;
+      } else {
+        showToast(data.error || 'Erro ao atualizar evento', 'danger');
+        return false;
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao salvar', 'danger');
+      return false;
+    }
+  };
+
+  const handleGuestImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setIsUploadingGuestImage(true);
+    try {
+      const res = await fetch(`${API_URL}/api/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNewGuestImageUrl(data.image_url);
+        showToast('Foto do convidado enviada com sucesso!');
+      } else {
+        showToast(data.error || 'Erro ao enviar imagem', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao enviar imagem', 'danger');
+    } finally {
+      setIsUploadingGuestImage(false);
+    }
+  };
+
+  const handleIssueCertificate = async (e) => {
+    e.preventDefault();
+    if (!issueUserEmail || !issueCertType) {
+      showToast('E-mail do usuário e tipo do certificado são obrigatórios', 'danger');
+      return;
+    }
+
+    setIsIssuing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/certificates/issue`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          user_email: issueUserEmail.trim(),
+          type: issueCertType,
+          workload_hours: parseInt(issueWorkload) || 20,
+          presentation_title: issueCertType === 'presentation' ? issuePresentationTitle.trim() : null
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Certificado emitido com sucesso!');
+        setIssueUserEmail('');
+        setIssuePresentationTitle('');
+        fetchCertificates(selectedEventForManagement.id);
+      } else {
+        showToast(data.error || 'Erro ao emitir certificado', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao emitir certificado', 'danger');
+    } finally {
+      setIsIssuing(false);
+    }
+  };
+
+  const handleBulkGenerateCertificates = async () => {
+    if (!window.confirm('Deseja realmente gerar certificados de participação para todos os presentes credenciados?')) return;
+    
+    setIsIssuing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/certificates/generate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Certificados gerados com sucesso!');
+        fetchCertificates(selectedEventForManagement.id);
+      } else {
+        showToast(data.error || 'Erro ao gerar certificados', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao gerar certificados', 'danger');
+    } finally {
+      setIsIssuing(false);
+    }
+  };
+
+  const handleViewCertificatePDF = async (certId) => {
+    showToast('Iniciando visualização do certificado...');
+    try {
+      const response = await fetch(`${API_URL}/api/certificates/${certId}/pdf`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        showToast('Certificado carregado com sucesso!');
+      } else {
+        showToast('Falha ao gerar PDF do certificado', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao visualizar certificado', 'danger');
+    }
+  };
+
+  const resetCreationForm = () => {
+    setName('');
+    setSlug('');
+    setType('workshop');
+    setDescription('');
+    setStartDate('');
+    setEndDate('');
+    setLocation('Auditório Principal');
+  };
+
+  const tabStyle = (isActive) => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 18px',
+    border: 'none',
+    background: isActive ? 'var(--primary-light)' : 'transparent',
+    color: isActive ? '#fff' : 'var(--text-secondary)',
+    fontWeight: 600,
+    borderRadius: 'var(--radius-sm)',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    boxShadow: isActive ? '0 4px 12px rgba(37, 99, 235, 0.15)' : 'none',
+    whiteSpace: 'nowrap'
+  });
+
+  const getFormatLabel = (fmt) => {
+    const labels = {
+      'school_of_summer': 'Escola de Verão',
+      'dima': 'Diálogos da Matemática com a Pedagogia (DIMA)',
+      'live_cycle': 'Ciclo de Lives',
+      'workshop': 'Workshop'
+    };
+    return labels[fmt] || fmt;
+  };
+
+  // Render sub-sections of workspace
+  const renderBasicInfoTab = () => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+      <div className="glass-card">
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Informações Básicas</h3>
+        <form onSubmit={(e) => { e.preventDefault(); saveEventDetails(); }}>
+          <div className="form-group">
+            <label className="form-label">Nome da Edição *</label>
+            <input 
+              type="text" 
+              className="form-input" 
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">URL Amigável (Slug) *</label>
+            <input 
+              type="text" 
+              className="form-input" 
+              disabled
+              value={slug}
+            />
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>O slug não pode ser alterado.</span>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Formato de Evento *</label>
+            <select className="form-select" value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="school_of_summer">Escola de Verão</option>
+              <option value="dima">Diálogos da Matemática com a Pedagogia (DIMA)</option>
+              <option value="live_cycle">Ciclo de Lives</option>
+              <option value="workshop">Workshop</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label className="form-label">Data de Início *</label>
+              <input type="date" className="form-input" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">Data de Fim *</label>
+              <input type="date" className="form-input" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Local *</label>
+            <input type="text" className="form-input" required value={location} onChange={(e) => setLocation(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Descrição Geral</label>
+            <textarea className="form-textarea" style={{ minHeight: '100px' }} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Salvar Alterações</button>
+        </form>
+      </div>
+
+      <div className="glass-card">
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Ajustes Adicionais & Banner</h3>
+        <form onSubmit={(e) => { e.preventDefault(); saveEventDetails(); }}>
+          <div className="form-group">
+            <label className="form-label">Link de Transmissão (Lives/Meet)</label>
+            <input type="text" className="form-input" placeholder="YouTube, Meet Link..." value={transmissionLink} onChange={(e) => setTransmissionLink(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Carga Horária Geral (horas) *</label>
+            <input type="number" className="form-input" required value={workloadHours} onChange={(e) => setWorkloadHours(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Banner Imagem URL</label>
+            <input type="text" className="form-input" placeholder="http://..." value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)} />
+          </div>
+          {bannerUrl && (
+            <div style={{ marginBottom: '15px', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+              <img src={bannerUrl} alt="Banner Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }} />
+            </div>
+          )}
+          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Salvar Configurações</button>
+        </form>
+      </div>
+    </div>
+  );
+
+  const renderProgrammingGuestsTab = () => {
+    const handleAddGuestSubmit = async (e) => {
+      e.preventDefault();
+      if (!newGuestName.trim()) {
+        showToast('Nome do convidado é obrigatório', 'danger');
+        return;
+      }
+
+      const newGuest = {
+        id: Date.now().toString(),
+        name: newGuestName.trim(),
+        role: newGuestRole,
+        institution: newGuestInstitution.trim(),
+        image_url: newGuestImageUrl
+      };
+
+      const updatedGuests = [...guestsList, newGuest];
+      
+      const success = await saveEventDetails({ guests: updatedGuests });
+      if (success) {
+        setGuestsList(updatedGuests);
+        setNewGuestName('');
+        setNewGuestInstitution('');
+        setNewGuestImageUrl('');
+      }
+    };
+
+    const handleRemoveGuestClick = async (guestId) => {
+      if (!window.confirm('Deseja realmente remover este convidado?')) return;
+      const updatedGuests = guestsList.filter(g => g.id !== guestId);
+      const success = await saveEventDetails({ guests: updatedGuests });
+      if (success) {
+        setGuestsList(updatedGuests);
+      }
+    };
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
+        <div className="glass-card" style={{ height: 'fit-content' }}>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Cadastrar Convidado</h3>
+          
+          <form onSubmit={handleAddGuestSubmit} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '20px', marginBottom: '20px' }}>
+            <div className="form-group">
+              <label className="form-label">Nome Completo *</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Ex: Prof. Dr. Carlos Souza"
+                required
+                value={newGuestName}
+                onChange={(e) => setNewGuestName(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Papel / Função *</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Ex: Palestrante, Mediador"
+                required
+                value={newGuestRole}
+                onChange={(e) => setNewGuestRole(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Instituição</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Ex: UFC"
+                value={newGuestInstitution}
+                onChange={(e) => setNewGuestInstitution(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Foto de Perfil</label>
+              <input 
+                type="file" 
+                className="form-input" 
+                accept="image/*"
+                onChange={handleGuestImageUpload}
+              />
+              {isUploadingGuestImage && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>Fazendo upload...</span>}
+              {newGuestImageUrl && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
+                  <img src={`${API_URL}${newGuestImageUrl}`} alt="Preview" style={{ width: '45px', height: '45px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)' }} />
+                  <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 'bold' }}>Imagem vinculada!</span>
+                </div>
+              )}
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Adicionar Convidado</button>
+          </form>
+
+          <h4 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '12px' }}>Convidados do Evento ({guestsList.length})</h4>
+          {guestsList.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nenhum convidado cadastrado.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
+              {guestsList.map(g => (
+                <div key={g.id} style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', padding: '10px', background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {g.image_url ? (
+                      <img src={`${API_URL}${g.image_url}`} alt={g.name} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifycontent: 'center', fontWeight: 'bold', color: '#fff', fontSize: '0.9rem' }}>
+                        {g.name.charAt(0)}
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{g.name}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{g.role} {g.institution ? `@ ${g.institution}` : ''}</div>
+                    </div>
+                  </div>
+                  <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveGuestClick(g.id)}>Excluir</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <AdminActivitiesView token={token} showToast={showToast} selectedEventId={selectedEventForManagement.id} eventGuests={guestsList} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderSubmissionsTab = () => {
+    const handleSaveSubmissionConfig = async (e) => {
+      e.preventDefault();
+      await saveEventDetails({
+        submissions_enabled: submissionsEnabled,
+        submission_rules: submissionRules,
+        thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean)
+      });
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Regras & Eixos Temáticos</h3>
+          
+          <form onSubmit={handleSaveSubmissionConfig}>
+            <div className="form-group" style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                <input 
+                  type="checkbox" 
+                  checked={submissionsEnabled === 1}
+                  onChange={(e) => setSubmissionsEnabled(e.target.checked ? 1 : 0)}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                Habilitar Envio de Trabalhos / Chamada Científica
+              </label>
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Eixos Temáticos (separados por vírgula) *</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Ex: Alfabetização Matemática, Prática Pedagógica"
+                value={thematicAxes}
+                onChange={(e) => setThematicAxes(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Regras e Instruções para Submissão</label>
+              <textarea 
+                className="form-textarea" 
+                placeholder="Insira as diretrizes de envio, formatação, número máximo de páginas, etc."
+                style={{ minHeight: '80px' }}
+                value={submissionRules}
+                onChange={(e) => setSubmissionRules(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="btn btn-primary">Salvar Ajustes de Submissão</button>
+          </form>
+        </div>
+
+        <div>
+          <AdminSubmissionsView token={token} showToast={showToast} selectedEventId={selectedEventForManagement.id} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderCheckinTab = () => {
+    const handleSaveCategories = async (e) => {
+      e.preventDefault();
+      await saveEventDetails({ registration_categories: regCategories });
+    };
+
+    const handleAddCategory = () => {
+      setRegCategories(prev => [...prev, { name: '', price: 0 }]);
+    };
+
+    const handleRemoveCategory = (index) => {
+      setRegCategories(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleCategoryChange = (index, field, value) => {
+      setRegCategories(prev => prev.map((cat, i) => {
+        if (i === index) {
+          return { ...cat, [field]: field === 'price' ? parseFloat(value) || 0 : value };
+        }
+        return cat;
+      }));
+    };
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
+        <div className="glass-card" style={{ height: 'fit-content' }}>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Credenciamento & Quiosque</h3>
+          
+          <form onSubmit={handleSaveCategories} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '20px', marginBottom: '20px' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Categorias de Inscrições</h4>
+            
+            {regCategories.map((cat, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Nome Ex: Graduando" 
+                  required
+                  value={cat.name}
+                  onChange={(e) => handleCategoryChange(idx, 'name', e.target.value)}
+                  style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                />
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  placeholder="R$ 0"
+                  step="0.01"
+                  required
+                  style={{ width: '90px', padding: '8px 12px', fontSize: '0.9rem' }}
+                  value={cat.price}
+                  onChange={(e) => handleCategoryChange(idx, 'price', e.target.value)}
+                />
+                <button type="button" className="btn btn-danger" style={{ padding: '6px 10px' }} onClick={() => handleRemoveCategory(idx)}>&times;</button>
+              </div>
+            ))}
+
+            <button type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: '10px', padding: '8px' }} onClick={handleAddCategory}>
+              + Adicionar Categoria
+            </button>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '10px' }}>Salvar Categorias</button>
+          </form>
+
+          <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Relatórios de Frequência</h4>
+          <button 
+            type="button" 
+            onClick={async () => {
+              showToast('Baixando planilha de presenças...');
+              try {
+                const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/registrations/export`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                  const blob = await res.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `frequencia-${selectedEventForManagement.slug}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  showToast('Frequência exportada com sucesso!');
+                } else {
+                  showToast('Erro ao exportar frequência', 'danger');
+                }
+              } catch (err) {
+                console.error(err);
+                showToast('Erro ao conectar ao servidor', 'danger');
+              }
+            }}
+            className="btn btn-secondary"
+            style={{ width: '100%', padding: '10px' }}
+          >
+            Exportar CSV de Presenças
+          </button>
+        </div>
+
+        <div>
+          <AdminCheckinView token={token} showToast={showToast} selectedEventId={selectedEventForManagement.id} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderCertificatesTab = () => {
+    const handleSaveTemplates = async (e) => {
+      e.preventDefault();
+      await saveEventDetails({
+        cert_border_color: certBorderColor,
+        cert_signature_name: certSignatureName,
+        cert_signature_role: certSignatureRole,
+        cert_text_template: certTextTemplate,
+        cert_text_organization: certTextOrganization,
+        cert_text_presentation: certTextPresentation,
+        cert_text_guest: certTextGuest
+      });
+    };
+
+    const getCertTypeLabel = (t) => {
+      const labels = {
+        'participation': 'Participação',
+        'organization': 'Comissão Organizadora',
+        'presentation': 'Apresentação',
+        'guest': 'Convidado / Palestrante'
+      };
+      return labels[t] || t;
+    };
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+        
+        {/* Templates Panel */}
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Modelos de Certificados</h3>
+          
+          <form onSubmit={handleSaveTemplates}>
+            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '15px' }}>
+              <div>
+                <label className="form-label">Cor Borda</label>
+                <input 
+                  type="color" 
+                  value={certBorderColor}
+                  onChange={(e) => setCertBorderColor(e.target.value)}
+                  style={{ width: '100%', height: '36px', padding: '2px', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
+                />
+              </div>
+              <div>
+                <label className="form-label">Hexadecimal</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={certBorderColor}
+                  onChange={(e) => setCertBorderColor(e.target.value)}
+                  style={{ fontFamily: 'monospace' }}
+                />
+              </div>
+            </div>
+
+            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div>
+                <label className="form-label">Assinatura (Nome)</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={certSignatureName}
+                  onChange={(e) => setCertSignatureName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="form-label">Assinatura (Cargo)</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={certSignatureRole}
+                  onChange={(e) => setCertSignatureRole(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Personalização de Texto</h4>
+              
+              <div className="form-group">
+                <label className="form-label"><strong>1. Participante</strong></label>
+                <textarea 
+                  className="form-textarea" 
+                  value={certTextTemplate}
+                  onChange={(e) => setCertTextTemplate(e.target.value)}
+                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '10px' }}>
+                <label className="form-label"><strong>2. Comissão Organizadora</strong></label>
+                <textarea 
+                  className="form-textarea" 
+                  value={certTextOrganization}
+                  onChange={(e) => setCertTextOrganization(e.target.value)}
+                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '10px' }}>
+                <label className="form-label"><strong>3. Apresentador de Trabalho</strong></label>
+                <textarea 
+                  className="form-textarea" 
+                  value={certTextPresentation}
+                  onChange={(e) => setCertTextPresentation(e.target.value)}
+                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}, {titulo_trabalho}`}</span>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '10px' }}>
+                <label className="form-label"><strong>4. Palestrante / Convidado</strong></label>
+                <textarea 
+                  className="form-textarea" 
+                  value={certTextGuest}
+                  onChange={(e) => setCertTextGuest(e.target.value)}
+                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
+              </div>
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>Salvar Templates</button>
+          </form>
+        </div>
+
+        {/* Issuance and listing Panel */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Emissão de Certificados</h3>
+            
+            {/* Lote / Bulk */}
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '15px', marginBottom: '15px' }}>
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>A. Emissão Automática em Lote (Participantes Presenciais)</h4>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                Emite certificados em massa para os inscritos que tiveram presença confirmada (check-in) e ainda não possuem certificados de participação.
+              </p>
+              <button 
+                type="button" 
+                className="btn btn-primary"
+                disabled={isIssuing}
+                onClick={handleBulkGenerateCertificates}
+                style={{ padding: '8px 16px', fontSize: '0.9rem' }}
+              >
+                {isIssuing ? 'Emitindo...' : 'Emitir em Lote para Credenciados'}
+              </button>
+            </div>
+
+            {/* Individual */}
+            <div>
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>B. Emissão Individual Customizada</h4>
+              
+              <form onSubmit={handleIssueCertificate}>
+                <div className="form-group" style={{ marginBottom: '10px' }}>
+                  <label className="form-label" style={{ fontSize: '0.85rem' }}>Tipo do Certificado</label>
+                  <select 
+                    className="form-select"
+                    value={issueCertType}
+                    onChange={(e) => {
+                      setIssueCertType(e.target.value);
+                      if (e.target.value === 'presentation') {
+                        setIssueWorkload('10');
+                      } else {
+                        setIssueWorkload(selectedEventForManagement.workload_hours.toString());
+                      }
+                    }}
+                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                  >
+                    <option value="organization">Organização (Comissão)</option>
+                    <option value="presentation">Apresentação de Trabalho</option>
+                    <option value="guest">Convidado / Palestrante</option>
+                    <option value="participation">Participante Individual</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '10px' }}>
+                  <label className="form-label" style={{ fontSize: '0.85rem' }}>E-mail do Destinatário *</label>
+                  <input 
+                    type="email"
+                    className="form-input"
+                    placeholder="email@exemplo.com"
+                    required
+                    value={issueUserEmail}
+                    onChange={(e) => setIssueUserEmail(e.target.value)}
+                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                  />
+                  {registrationsList.length > 0 && (
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Vincular inscrito:</span>
+                      <select 
+                        className="form-select"
+                        style={{ width: 'auto', padding: '2px 8px', fontSize: '0.75rem', height: 'auto', border: '1px solid var(--border)' }}
+                        onChange={(e) => setIssueUserEmail(e.target.value)}
+                        value={issueUserEmail}
+                      >
+                        <option value="">-- Escolher Participante --</option>
+                        {registrationsList.map(r => (
+                          <option key={r.id} value={r.user_email}>{r.user_name} ({r.user_email})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '10px' }}>
+                  <label className="form-label" style={{ fontSize: '0.85rem' }}>Carga Horária (horas)</label>
+                  <input 
+                    type="number"
+                    className="form-input"
+                    value={issueWorkload}
+                    onChange={(e) => setIssueWorkload(e.target.value)}
+                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                {issueCertType === 'presentation' && (
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label className="form-label" style={{ fontSize: '0.85rem' }}>Título do Trabalho Apresentado *</label>
+                    <input 
+                      type="text"
+                      className="form-input"
+                      placeholder="Título completo do artigo..."
+                      required
+                      value={issuePresentationTitle}
+                      onChange={(e) => setIssuePresentationTitle(e.target.value)}
+                      style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                    />
+                    {submissionsList.length > 0 && (
+                      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Puxar trabalho aceito:</span>
+                        <select 
+                          className="form-select"
+                          style={{ width: 'auto', padding: '2px 8px', fontSize: '0.75rem', height: 'auto', border: '1px solid var(--border)' }}
+                          onChange={(e) => {
+                            const subId = e.target.value;
+                            const selected = submissionsList.find(s => s.id === subId);
+                            if (selected) {
+                              setIssuePresentationTitle(selected.title);
+                              setIssueUserEmail(selected.submitter_email || '');
+                            }
+                          }}
+                          defaultValue=""
+                        >
+                          <option value="">-- Escolher Trabalho --</option>
+                          {submissionsList.map(s => (
+                            <option key={s.id} value={s.id}>{s.title} ({s.submitter_name})</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {issueCertType === 'guest' && guestsList.length > 0 && (
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', alignSelf: 'center', display: 'block', marginBottom: '2px' }}>Puxar palestrante:</span>
+                    <select 
+                      className="form-select"
+                      style={{ width: '100%', padding: '6px 8px', fontSize: '0.8rem', border: '1px solid var(--border)' }}
+                      onChange={(e) => {
+                        const guest = guestsList.find(g => g.name === e.target.value);
+                        if (guest) {
+                          showToast(`Convidado selecionado: ${guest.name}. Por favor informe o e-mail cadastrado deste convidado.`);
+                        }
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="">-- Escolher Convidado --</option>
+                      {guestsList.map(g => (
+                        <option key={g.id} value={g.name}>{g.name} ({g.role})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  style={{ width: '100%', padding: '10px' }}
+                  disabled={isIssuing}
+                >
+                  {isIssuing ? 'Emitindo...' : 'Emitir Certificado'}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* List of certificates */}
+          <div className="glass-card" style={{ flex: 1 }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Emitidos ({certificatesList.length})</h3>
+            {certificatesList.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nenhum certificado emitido.</div>
+            ) : (
+              <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                <table className="custom-table" style={{ fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Inscrito</th>
+                      <th>Tipo</th>
+                      <th>Carga</th>
+                      <th>PDF</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {certificatesList.map(c => (
+                      <tr key={c.id}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{c.user_name}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{c.user_email}</div>
+                          {c.presentation_title && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Artigo: {c.presentation_title}</div>}
+                        </td>
+                        <td>
+                          <span className={`badge ${c.type === 'participation' ? 'badge-primary' : c.type === 'organization' ? 'badge-success' : c.type === 'presentation' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.65rem' }}>
+                            {getCertTypeLabel(c.type)}
+                          </span>
+                        </td>
+                        <td>{c.workload_hours}h</td>
+                        <td>
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '3px 6px', fontSize: '0.72rem' }}
+                            onClick={() => handleViewCertificatePDF(c.id)}
+                          >
+                            Visualizar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  // Main UI render logic
+  return (
+    <div>
+      {selectedEventForManagement ? (
+        // Event Workspace Layout
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Header */}
+          <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+            <div>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => {
+                  setSelectedEventForManagement(null);
+                  fetchEvents();
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', padding: '6px 12px', fontSize: '0.85rem' }}
+              >
+                &larr; Voltar para Edições
+              </button>
+              <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)', margin: 0 }}>
+                {selectedEventForManagement.name}
+              </h2>
+              <div style={{ display: 'flex', gap: '15px', marginTop: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                <span><strong>Formato:</strong> {getFormatLabel(selectedEventForManagement.type)}</span>
+                <span><strong>Período:</strong> {new Date(selectedEventForManagement.start_date).toLocaleDateString('pt-BR')} a {new Date(selectedEventForManagement.end_date).toLocaleDateString('pt-BR')}</span>
+                <span><strong>Local:</strong> {selectedEventForManagement.location || 'Auditório Principal'}</span>
+              </div>
+            </div>
+            
+            <div>
+              {selectedEventForManagement.transmission_link && (
+                <a 
+                  href={selectedEventForManagement.transmission_link} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '0.9rem' }}
+                >
+                  <ExternalLink size={16} /> Assistir Transmissão
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Nav Tabs */}
+          <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid var(--border)', paddingBottom: '8px', overflowX: 'auto' }}>
+            <button 
+              style={tabStyle(workspaceTab === 'basic')}
+              onClick={() => setWorkspaceTab('basic')}
+            >
+              <Info size={16} /> Informações Básicas
+            </button>
+            <button 
+              style={tabStyle(workspaceTab === 'programming_guests')}
+              onClick={() => setWorkspaceTab('programming_guests')}
+            >
+              <Users size={16} /> Convidados & Programação
+            </button>
+            <button 
+              style={tabStyle(workspaceTab === 'submissions')}
+              onClick={() => setWorkspaceTab('submissions')}
+            >
+              <BookOpen size={16} /> Envio de Trabalhos
+            </button>
+            <button 
+              style={tabStyle(workspaceTab === 'checkin')}
+              onClick={() => setWorkspaceTab('checkin')}
+            >
+              <CheckCircle size={16} /> Credenciamento & Inscrições
+            </button>
+            <button 
+              style={tabStyle(workspaceTab === 'certificates')}
+              onClick={() => setWorkspaceTab('certificates')}
+            >
+              <Award size={16} /> Certificados
+            </button>
+          </div>
+
+          {/* Tab content */}
+          <div style={{ marginTop: '10px' }}>
+            {workspaceTab === 'basic' && renderBasicInfoTab()}
+            {workspaceTab === 'programming_guests' && renderProgrammingGuestsTab()}
+            {workspaceTab === 'submissions' && renderSubmissionsTab()}
+            {workspaceTab === 'checkin' && renderCheckinTab()}
+            {workspaceTab === 'certificates' && renderCertificatesTab()}
+          </div>
+        </div>
+      ) : (
+        // Grid of events & Creation Form
+        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
+          
+          {/* Create simple event */}
+          <div className="glass-card" style={{ height: 'fit-content' }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Criar Nova Edição</h3>
+            
+            <form onSubmit={handleCreateEventSubmit}>
+              <div className="form-group">
+                <label className="form-label">Nome do Evento *</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Ex: IV Workshop do G-TERCOA" 
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">URL Amigável (Slug) *</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Ex: iv-workshop" 
+                  required
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Formato de Evento *</label>
+                <select className="form-select" value={type} onChange={(e) => setType(e.target.value)}>
+                  <option value="workshop">Workshop</option>
+                  <option value="school_of_summer">Escola de Verão</option>
+                  <option value="dima">Diálogos da Matemática com a Pedagogia (DIMA)</option>
+                  <option value="live_cycle">Ciclo de Lives</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label className="form-label">Data de Início *</label>
+                  <input type="date" className="form-input" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label">Data de Fim *</label>
+                  <input type="date" className="form-input" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Local de Realização *</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  required 
+                  value={location} 
+                  onChange={(e) => setLocation(e.target.value)} 
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Descrição Resumida</label>
+                <textarea 
+                  className="form-textarea" 
+                  placeholder="Informações gerais e objetivos do evento..." 
+                  value={description} 
+                  onChange={(e) => setDescription(e.target.value)} 
+                  style={{ minHeight: '80px' }}
+                />
+              </div>
+
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
+                Criar Evento (Passo 1/3)
+              </button>
+            </form>
+          </div>
+
+          {/* List of current events in a premium Grid of Cards */}
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Workspace de Eventos</h3>
+            
+            {loading ? (
+              <div>Carregando edições...</div>
+            ) : events.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)' }}>Nenhum evento criado ainda. Preencha o formulário ao lado para criar o primeiro.</div>
+            ) : (
+              <div className="grid-cards">
+                {events.map(ev => (
+                  <div 
+                    key={ev.id} 
+                    className="glass-card" 
+                    style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      justifyContent: 'space-between', 
+                      padding: '20px', 
+                      gap: '15px', 
+                      borderLeft: `5px solid ${ev.cert_border_color || 'var(--primary-light)'}`,
+                      height: '100%' 
+                    }}
+                  >
+                    <div>
+                      <span className="badge badge-primary" style={{ fontSize: '0.7rem', marginBottom: '8px' }}>
+                        {getFormatLabel(ev.type)}
+                      </span>
+                      <h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 8px' }}>{ev.name}</h4>
+                      
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div>📅 {new Date(ev.start_date).toLocaleDateString('pt-BR')} a {new Date(ev.end_date).toLocaleDateString('pt-BR')}</div>
+                        <div>📍 {ev.location || 'Auditório Principal'}</div>
+                        {ev.workload_hours && <div>⏱️ Carga horária: {ev.workload_hours}h</div>}
+                      </div>
+                    </div>
+
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={() => handleSelectEventForManagement(ev)}
+                      style={{ 
+                        width: '100%', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        gap: '6px',
+                        background: 'var(--primary-glow)',
+                        color: 'var(--primary-light)',
+                        border: 'none',
+                        fontSize: '0.9rem',
+                        padding: '10px'
+                      }}
+                    >
+                      Gerenciar Evento &rarr;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+// C. CREDENCIAMENTO E CHECK-IN (QR READER SIMULATION & NAME SEARCH)
+function AdminCheckinView({ token, showToast, selectedEventId: propEventId }) {
+  const [events, setEvents] = useState([]);
+  const [selectedEventId, setSelectedEventId] = useState(propEventId || '');
+  const [registrations, setRegistrations] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // simulated QR camera
+  const [qrCodeInput, setQrCodeInput] = useState('');
+  const [scanning, setScanning] = useState(false);
+
+  // Kiosk Mode & Advanced states
+  const [kioskMode, setKioskMode] = useState(false);
+  const [kioskInput, setKioskInput] = useState('');
+  const [kioskStatus, setKioskStatus] = useState('idle'); // idle | loading | success | error
+  const [kioskMessage, setKioskMessage] = useState('');
+
+  useEffect(() => {
+    if (!propEventId) {
+      fetchEvents();
+    } else {
+      setSelectedEventId(propEventId);
+    }
+  }, [propEventId]);
+
+  useEffect(() => {
+    if (selectedEventId) {
+      fetchAttendees(selectedEventId);
+    }
+  }, [selectedEventId]);
+
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events`);
+      const data = await res.json();
+      setEvents(data);
+      if (data.length > 0) setSelectedEventId(data[0].id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchAttendees = async (eventId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/registrations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRegistrations(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCheckinToggle = async (regId, currentStatus) => {
+    try {
+      const res = await fetch(`${API_URL}/api/registrations/${regId}/checkin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: currentStatus ? 0 : 1 })
+      });
+
+      if (res.ok) {
+        showToast(currentStatus ? 'Presença removida.' : 'Check-in realizado com sucesso!');
+        fetchAttendees(selectedEventId);
+      } else {
+        showToast('Erro ao atualizar presença', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleExportCSV = async () => {
+    if (!selectedEventId) return;
+    showToast('Iniciando exportação da lista de presença...');
+    try {
+      const response = await fetch(`${API_URL}/api/events/${selectedEventId}/registrations/export`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const eventName = events.find(e => e.id === selectedEventId)?.name || 'evento';
+        const safeName = eventName.toLowerCase().replace(/[^a-z0-9]/gi, '_');
+        a.href = url;
+        a.download = `lista_presenca_${safeName}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        showToast('Lista exportada em CSV com sucesso!');
+      } else {
+        showToast('Erro ao exportar lista de presença', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao exportar CSV', 'danger');
+    }
+  };
+
+  const playBeep = (success) => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      if (success) {
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15);
+      } else {
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.45);
+      }
+    } catch (e) {
+      console.warn('Audio Context is not supported or blocked.', e);
+    }
+  };
+
+  const handleKioskSubmit = async (e) => {
+    e.preventDefault();
+    if (!kioskInput.trim()) return;
+    
+    setKioskStatus('loading');
+    const formattedInput = kioskInput.trim();
+    
+    try {
+      const resRegs = await fetch(`${API_URL}/api/events/${selectedEventId}/registrations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resRegs.ok) {
+        const regs = await resRegs.json();
+        setRegistrations(regs);
+        
+        const match = regs.find(r => r.id === formattedInput || r.user_cpf.replace(/[^0-9]/g, '') === formattedInput.replace(/[^0-9]/g, ''));
+        if (match) {
+          if (match.checked_in) {
+            setKioskStatus('error');
+            setKioskMessage(`${match.user_name} já credenciado(a) anteriormente!`);
+            playBeep(false);
+            setKioskInput('');
+            setTimeout(() => {
+              setKioskStatus('idle');
+              setKioskMessage('');
+            }, 3500);
+          } else {
+            const checkinRes = await fetch(`${API_URL}/api/registrations/${match.id}/checkin`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ status: 1 })
+            });
+            if (checkinRes.ok) {
+              setKioskStatus('success');
+              setKioskMessage(`Check-in realizado! Seja bem-vindo(a), ${match.user_name}!`);
+              playBeep(true);
+              setKioskInput('');
+              fetchAttendees(selectedEventId);
+              setTimeout(() => {
+                setKioskStatus('idle');
+                setKioskMessage('');
+              }, 3500);
+            } else {
+              setKioskStatus('error');
+              setKioskMessage('Falha ao processar credenciamento no servidor.');
+              playBeep(false);
+            }
+          }
+        } else {
+          setKioskStatus('error');
+          setKioskMessage('Participante ou código credencial não localizado neste evento!');
+          playBeep(false);
+          setKioskInput('');
+          setTimeout(() => {
+            setKioskStatus('idle');
+            setKioskMessage('');
+          }, 3500);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setKioskStatus('error');
+      setKioskMessage('Erro de conexão ao buscar credencial.');
+      playBeep(false);
+    }
+  };
+
+  // Simulated QR check-in
+  const handleQRScanSubmit = (e) => {
+    e.preventDefault();
+    if (!qrCodeInput.trim()) return;
+
+    // Search matching registration in the attendee list
+    const match = registrations.find(r => r.id === qrCodeInput.trim() || r.user_cpf === qrCodeInput.trim());
+    if (match) {
+      handleCheckinToggle(match.id, match.checked_in);
+      setQrCodeInput('');
+      setScanning(false);
+    } else {
+      showToast('Credencial/QR Code não encontrado para este evento.', 'danger');
+    }
+  };
+
+  // Automated certificates issuance trigger
+  const handleBulkIssueCertificates = async () => {
+    if (!selectedEventId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventId}/certificates/generate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message);
+      } else {
+        showToast(data.error || 'Erro ao gerar certificados', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const filteredAttendees = registrations.filter(r => 
+    r.user_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    r.user_cpf.includes(searchTerm)
+  );
+
+  const totalRegistered = registrations.length;
+  const totalPresent = registrations.filter(r => r.checked_in === 1).length;
+  const totalAbsent = totalRegistered - totalPresent;
+  const attendancePercent = totalRegistered > 0 ? Math.round((totalPresent / totalRegistered) * 100) : 0;
+
+  if (kioskMode) {
+    const activeEvent = events.find(e => e.id === selectedEventId);
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
+        color: '#fff',
+        zIndex: 99999,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px',
+        textAlign: 'center'
+      }}>
+        <button 
+          className="btn" 
+          style={{ position: 'absolute', top: '30px', right: '30px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '10px 20px', fontWeight: 'bold' }}
+          onClick={() => { setKioskMode(false); setKioskStatus('idle'); setKioskMessage(''); }}
+        >
+          Sair do Modo Quiosque
+        </button>
+
+        <div style={{ maxWidth: '600px', width: '100%' }}>
+          <span className="badge badge-accent" style={{ fontSize: '0.9rem', padding: '6px 16px', background: '#d97706', marginBottom: '15px' }}>
+            Autoatendimento
+          </span>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#fff', marginBottom: '10px' }}>G-TERCOA Credenciamento</h1>
+          <p style={{ fontSize: '1.2rem', color: '#93c5fd', marginBottom: '40px' }}>
+            Edição: <strong>{activeEvent ? activeEvent.name : 'Carregando...'}</strong>
+          </p>
+
+          {kioskStatus === 'idle' && (
+            <div className="glass-card" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', padding: '40px 30px', borderRadius: '24px' }}>
+              <QrCode size={80} style={{ color: '#93c5fd', margin: '0 auto 24px', animation: 'pulse 2s infinite' }} />
+              <h2 style={{ fontSize: '1.6rem', fontWeight: 700, marginBottom: '20px' }}>Aproxime seu QR Code ou Digite seu CPF</h2>
+              
+              <form onSubmit={handleKioskSubmit}>
+                <div className="form-group" style={{ marginBottom: '20px' }}>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    style={{ textAlign: 'center', fontSize: '1.5rem', padding: '15px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+                    placeholder="Ex: CPF ou Código de Inscrição"
+                    autoFocus
+                    required
+                    value={kioskInput}
+                    onChange={(e) => setKioskInput(e.target.value)}
+                  />
+                </div>
+                <button type="submit" className="btn btn-accent" style={{ width: '100%', padding: '16px', fontSize: '1.2rem', fontWeight: 'bold' }}>
+                  Confirmar Presença
+                </button>
+              </form>
+            </div>
+          )}
+
+          {kioskStatus === 'loading' && (
+            <div style={{ padding: '60px' }}>
+              <div style={{ width: '50px', height: '50px', border: '5px solid #94a3b8', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s infinite linear', margin: '0 auto 20px' }}></div>
+              <h3>Processando credenciamento...</h3>
+            </div>
+          )}
+
+          {kioskStatus === 'success' && (
+            <div className="glass-card" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '2px solid #10b981', padding: '50px 30px', borderRadius: '24px' }}>
+              <CheckCircle size={80} style={{ color: '#10b981', margin: '0 auto 20px' }} />
+              <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#10b981', marginBottom: '15px' }}>Presença Confirmada!</h2>
+              <p style={{ fontSize: '1.3rem', color: '#e2e8f0', lineHeight: 1.4 }}>
+                {kioskMessage}
+              </p>
+              <div style={{ marginTop: '30px', fontSize: '0.9rem', color: '#94a3b8' }}>
+                Retornando em instantes...
+              </div>
+            </div>
+          )}
+
+          {kioskStatus === 'error' && (
+            <div className="glass-card" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', padding: '50px 30px', borderRadius: '24px' }}>
+              <Info size={80} style={{ color: '#ef4444', margin: '0 auto 20px' }} />
+              <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#ef4444', marginBottom: '15px' }}>Não Credenciado!</h2>
+              <p style={{ fontSize: '1.3rem', color: '#e2e8f0', lineHeight: 1.4 }}>
+                {kioskMessage}
+              </p>
+              <div style={{ marginTop: '30px', fontSize: '0.9rem', color: '#94a3b8' }}>
+                Retornando em instantes...
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <style dangerouslySetInnerHTML={{__html: `
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '30px' }}>
+      {/* Search & Checklist */}
+      <div className="glass-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)' }}>Controle de Acesso / Chamada</h3>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-accent" style={{ padding: '8px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={handleBulkIssueCertificates}>
+              <Award size={14} /> Emitir Certificados
+            </button>
+            <button className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={handleExportCSV}>
+              <FileText size={14} /> Exportar CSV
+            </button>
+            <button className="btn btn-secondary" style={{ padding: '8px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', color: '#fff' }} onClick={() => setKioskMode(true)}>
+              <QrCode size={14} /> Modo Quiosque
+            </button>
+          </div>
+        </div>
+
+        {/* Live Attendance Metrics Card */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--surface-secondary)', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid var(--border)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Inscritos</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--text-primary)', marginTop: '2px' }}>{totalRegistered}</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Presentes</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--success)', marginTop: '2px' }}>{totalPresent}</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Ausentes</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--danger)', marginTop: '2px' }}>{totalAbsent}</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Presença</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary-light)', marginTop: '2px' }}>{attendancePercent}%</div>
+          </div>
+        </div>
+
+        <div className="form-group" style={{ display: 'flex', gap: '10px' }}>
+          {!propEventId && (
+            <select className="form-select" style={{ maxWidth: '250px' }} value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
+              {events.map(ev => (
+                <option key={ev.id} value={ev.id}>{ev.name}</option>
+              ))}
+            </select>
+          )}
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '14px', color: 'var(--text-muted)' }} />
+            <input 
+              type="text" 
+              className="form-input" 
+              style={{ paddingLeft: '36px' }} 
+              placeholder="Buscar por Nome ou CPF..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="table-container" style={{ marginTop: '20px' }}>
+          <table className="custom-table">
+            <thead>
+              <tr>
+                <th>Nome do Participante</th>
+                <th>CPF</th>
+                <th>Categoria</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAttendees.length === 0 ? (
+                <tr><td colSpan="5" style={{ textAlign: 'center' }}>Nenhum participante inscrito neste evento.</td></tr>
+              ) : (
+                filteredAttendees.map(att => (
+                  <tr key={att.id} style={{ background: att.checked_in ? 'rgba(5, 150, 105, 0.03)' : '#fff' }}>
+                    <td style={{ fontWeight: 600 }}>{att.user_name}</td>
+                    <td>{att.user_cpf}</td>
+                    <td>{att.category}</td>
+                    <td>
+                      <span className={`badge ${att.checked_in ? 'badge-success' : 'badge-danger'}`}>
+                        {att.checked_in ? 'Presente' : 'Faltando'}
+                      </span>
+                    </td>
+                    <td>
+                      <button 
+                        className={`btn ${att.checked_in ? 'btn-danger' : 'btn-primary'}`} 
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                        onClick={() => handleCheckinToggle(att.id, att.checked_in)}
+                      >
+                        {att.checked_in ? 'Remover' : 'Credenciar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* QR scanner simulator */}
+      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Leitor QR Code (Simulador)</h3>
+          
+          {/* Simulated Webcam View */}
+          <div style={{
+            height: '220px',
+            background: '#000',
+            borderRadius: 'var(--radius-sm)',
+            position: 'relative',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justify: 'center',
+            color: '#fff',
+            marginBottom: '20px'
+          }}>
+            {scanning ? (
+              <>
+                {/* Visual scan animation line */}
+                <div style={{
+                  position: 'absolute',
+                  top: '0',
+                  left: '0',
+                  width: '100%',
+                  height: '3px',
+                  background: 'var(--success)',
+                  boxShadow: '0 0 10px var(--success)',
+                  animation: 'qrScannerLine 2.5s infinite linear'
+                }}></div>
+                <div style={{ textAlign: 'center', zIndex: 10 }}>
+                  <QrCode size={48} className="animate-pulse" style={{ color: 'var(--success)', margin: '0 auto 10px' }} />
+                  <p style={{ fontSize: '0.85rem' }}>Buscando QR Code nos arredores...</p>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', cursor: 'pointer' }} onClick={() => setScanning(true)}>
+                <QrCode size={48} style={{ color: 'var(--text-muted)', margin: '0 auto 10px' }} />
+                <p style={{ fontSize: '0.85rem' }}>Clique para ativar câmera de credenciamento</p>
+              </div>
+            )}
+          </div>
+
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes qrScannerLine {
+              0% { top: 0%; }
+              50% { top: 100%; }
+              100% { top: 0%; }
+            }
+          `}} />
+
+          {/* Test panel inside the QR simulator */}
+          <form onSubmit={handleQRScanSubmit}>
+            <div className="form-group">
+              <label className="form-label">Simular Entrada do Scanner (ID ou CPF)</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Insira o ID da credencial ou CPF do participante" 
+                value={qrCodeInput}
+                onChange={(e) => setQrCodeInput(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Simular Leitura QR</button>
+          </form>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <strong>Dica de Teste:</strong> Clique em "Ver QR Credencial" na área do participante para abrir a credencial, copie o ID ou digite o CPF de algum inscrito nesta caixa.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// D. ALLOCATIONS AND REVIEW ASSIGNMENTS
+function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }) {
+  const [events, setEvents] = useState([]);
+  const [selectedEventId, setSelectedEventId] = useState(propEventId || '');
+  const [submissions, setSubmissions] = useState([]);
+  const [evaluators, setEvaluators] = useState([]);
+
+  useEffect(() => {
+    if (!propEventId) {
+      fetchEvents();
+    } else {
+      setSelectedEventId(propEventId);
+    }
+    fetchEvaluators();
+  }, [propEventId]);
+
+  useEffect(() => {
+    if (selectedEventId) {
+      fetchSubmissions(selectedEventId);
+    }
+  }, [selectedEventId]);
+
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events`);
+      const data = await res.json();
+      setEvents(data);
+      if (data.length > 0) setSelectedEventId(data[0].id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchEvaluators = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/users/evaluators`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvaluators(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchSubmissions = async (eventId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/submissions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissions(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAssignReviewer = async (subId, reviewerId) => {
+    if (!reviewerId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/submissions/${subId}/assign`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ reviewer_id: reviewerId })
+      });
+
+      if (res.ok) {
+        showToast('Avaliador alocado com sucesso!');
+        fetchSubmissions(selectedEventId);
+      } else {
+        showToast('Erro ao alocar avaliador', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div className="glass-card">
+      <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '20px' }}>Alocação de Pareceristas e Eixos Temáticos</h3>
+
+      {!propEventId && (
+        <div className="form-group" style={{ display: 'flex', gap: '10px' }}>
+          <select className="form-select" style={{ maxWidth: '300px' }} value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
+            {events.map(ev => (
+              <option key={ev.id} value={ev.id}>{ev.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="table-container" style={{ marginTop: '20px' }}>
+        <table className="custom-table">
+          <thead>
+            <tr>
+              <th>Título do Trabalho</th>
+              <th>Autor Principal</th>
+              <th>Eixo Temático</th>
+              <th>Avaliador Alocado</th>
+              <th>Status</th>
+              <th>Parecer Final</th>
+            </tr>
+          </thead>
+          <tbody>
+            {submissions.length === 0 ? (
+              <tr><td colSpan="6" style={{ textAlign: 'center' }}>Nenhum trabalho submetido para esta edição.</td></tr>
+            ) : (
+              submissions.map(sub => (
+                <tr key={sub.id}>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{sub.title}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Coautores: {sub.authors || 'Nenhum'}</div>
+                    <div>
+                      <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', textDecoration: 'underline' }}>
+                        Baixar Artigo (PDF/Word)
+                      </a>
+                    </div>
+                  </td>
+                  <td>{sub.submitter_name}</td>
+                  <td><span className="badge badge-primary">{sub.thematic_axis}</span></td>
+                  <td>
+                    <select 
+                      className="form-select" 
+                      style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                      value={sub.reviewer_id || ''}
+                      onChange={(e) => handleAssignReviewer(sub.id, e.target.value)}
+                    >
+                      <option value="">Designar Avaliador...</option>
+                      {evaluators.map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <span className={`badge ${
+                      sub.status === 'under_review' ? 'badge-warning' : sub.status === 'accepted' ? 'badge-success' : sub.status === 'rejected' ? 'badge-danger' : 'badge-primary'
+                    }`}>
+                      {sub.status === 'under_review' ? 'Sob Avaliação' : sub.status}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: '0.85rem' }}>{sub.review_comments || 'Pendente de revisão'}</span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// AUTH MODALS
+// ==========================================
+
+// Login Modal
+function LoginModal({ onClose, setToken, showToast }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setToken(data.token);
+        showToast('Login realizado com sucesso! Bem-vindo(a).');
+        onClose();
+      } else {
+        showToast(data.error || 'Erro ao realizar login', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao conectar ao servidor', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-container">
+        <div className="modal-header">
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary)' }}>Entrar na Plataforma</h3>
+          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer' }} onClick={onClose}>&times;</button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">E-mail</label>
+              <input id="login-email" type="email" className="form-input" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Senha</label>
+              <input id="login-password" type="password" className="form-input" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+            <button id="login-submit-btn" type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Entrando...' : 'Entrar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Register Modal
+function RegisterModal({ onClose, showToast, setShowLoginModal }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [role, setRole] = useState('participant');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password, cpf, role })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Cadastro realizado com sucesso! Faça seu login.');
+        onClose();
+        setShowLoginModal(true);
+      } else {
+        showToast(data.error || 'Erro ao realizar cadastro', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão ao registrar', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-container">
+        <div className="modal-header">
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary)' }}>Criar Conta de Acesso</h3>
+          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer' }} onClick={onClose}>&times;</button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+            <div className="form-group">
+              <label className="form-label">Nome Completo *</label>
+              <input id="register-name" type="text" className="form-input" required value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">E-mail *</label>
+              <input id="register-email" type="email" className="form-input" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">CPF *</label>
+              <input 
+                id="register-cpf"
+                type="text" 
+                className="form-input" 
+                placeholder="000.000.000-00" 
+                required 
+                value={cpf} 
+                onChange={(e) => setCpf(e.target.value)} 
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Senha *</label>
+              <input id="register-password" type="password" className="form-input" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Papel de Usuário *</label>
+              <select id="register-role" className="form-select" value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="participant">Participante / Autor</option>
+                <option value="evaluator">Avaliador (Parecerista)</option>
+              </select>
+              <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                Nota: O papel de Administrador Geral é gerado por padrão na inicialização do banco.
+              </small>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+            <button id="register-submit-btn" type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? 'Cadastrando...' : 'Cadastrar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, eventGuests }) {
+  const [events, setEvents] = useState([]);
+  const [selectedEventId, setSelectedEventId] = useState(propEventId || '');
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // New Activity form state
+  const [title, setTitle] = useState('');
+  const [type, setType] = useState('palestra');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [location, setLocation] = useState('');
+  const [description, setDescription] = useState('');
+  
+  // Guest list state for the new activity
+  const [guests, setGuests] = useState([]);
+  const [guestName, setGuestName] = useState('');
+  const [guestRole, setGuestRole] = useState('palestrante');
+  const [guestInstitution, setGuestInstitution] = useState('');
+
+  useEffect(() => {
+    if (!propEventId) {
+      fetchEvents();
+    } else {
+      setSelectedEventId(propEventId);
+    }
+  }, [propEventId]);
+
+  useEffect(() => {
+    if (selectedEventId) {
+      fetchActivities(selectedEventId);
+    }
+  }, [selectedEventId]);
+
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events`);
+      const data = await res.json();
+      setEvents(data);
+      if (data.length > 0) {
+        setSelectedEventId(data[0].id);
+      } else {
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchActivities = async (eventId) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/activities`);
+      if (res.ok) {
+        const data = await res.json();
+        setActivities(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddGuest = (e) => {
+    e.preventDefault();
+    if (!guestName.trim()) {
+      showToast('Nome do convidado é obrigatório', 'danger');
+      return;
+    }
+    setGuests(prev => [
+      ...prev,
+      { name: guestName.trim(), role: guestRole, institution: guestInstitution.trim() }
+    ]);
+    setGuestName('');
+    setGuestInstitution('');
+  };
+
+  const handleRemoveGuest = (index) => {
+    setGuests(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmitActivity = async (e) => {
+    e.preventDefault();
+    if (!title || !startTime || !endTime) {
+      showToast('Preencha os campos obrigatórios', 'danger');
+      return;
+    }
+
+    const payload = {
+      title,
+      type,
+      start_time: startTime,
+      end_time: endTime,
+      location,
+      description,
+      guests
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventId}/activities`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Atividade adicionada com sucesso à programação!');
+        setTitle('');
+        setStartTime('');
+        setEndTime('');
+        setLocation('');
+        setDescription('');
+        setGuests([]);
+        fetchActivities(selectedEventId);
+      } else {
+        showToast(data.error || 'Erro ao criar atividade', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao conectar ao servidor', 'danger');
+    }
+  };
+
+  const handleDeleteActivity = async (actId) => {
+    if (!window.confirm('Deseja realmente excluir esta atividade da programação?')) return;
+    try {
+      const res = await fetch(`${API_URL}/api/activities/${actId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        showToast('Atividade removida com sucesso!');
+        fetchActivities(selectedEventId);
+      } else {
+        showToast('Erro ao remover atividade', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '450px 1fr', gap: '30px' }}>
+      {/* Activity Form */}
+      <div className="glass-card">
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Criar Atividade</h3>
+        
+        {!propEventId && (
+          <div className="form-group">
+            <label className="form-label">Selecionar Edição do Evento *</label>
+            <select className="form-select" value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
+              {events.map(ev => (
+                <option key={ev.id} value={ev.id}>{ev.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmitActivity}>
+          <div className="form-group">
+            <label className="form-label">Título da Atividade *</label>
+            <input 
+              id="act-title"
+              type="text" 
+              className="form-input" 
+              placeholder="Ex: Palestra Magna: O Futuro da Educação" 
+              required 
+              value={title} 
+              onChange={(e) => setTitle(e.target.value)} 
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Tipo de Atividade *</label>
+            <select id="act-type" className="form-select" value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="palestra">Palestra</option>
+              <option value="mesa_redonda">Mesa Redonda</option>
+              <option value="minicurso">Minicurso</option>
+              <option value="outro">Abertura / Encerramento / Outro</option>
+            </select>
+          </div>
+
+          <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label className="form-label">Data/Hora Início *</label>
+              <input 
+                id="act-start-time"
+                type="datetime-local" 
+                className="form-input" 
+                required 
+                value={startTime} 
+                onChange={(e) => setStartTime(e.target.value)} 
+              />
+            </div>
+            <div>
+              <label className="form-label">Data/Hora Fim *</label>
+              <input 
+                id="act-end-time"
+                type="datetime-local" 
+                className="form-input" 
+                required 
+                value={endTime} 
+                onChange={(e) => setEndTime(e.target.value)} 
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Local / Link Virtual</label>
+            <input 
+              id="act-location"
+              type="text" 
+              className="form-input" 
+              placeholder="Ex: Auditório B ou Link Zoom" 
+              value={location} 
+              onChange={(e) => setLocation(e.target.value)} 
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Resumo / Descrição</label>
+            <textarea 
+              id="act-description"
+              className="form-textarea" 
+              style={{ minHeight: '60px' }}
+              placeholder="Breve descrição da programação..." 
+              value={description} 
+              onChange={(e) => setDescription(e.target.value)} 
+            />
+          </div>
+
+          {/* Sub-form: Invite guests */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Adicionar Convidados (Palestrante/Mediador)</h4>
+            
+            {eventGuests && eventGuests.length > 0 && (
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Vincular Convidado Cadastrado no Evento:</label>
+                <select 
+                  className="form-select"
+                  onChange={(e) => {
+                    const guestId = e.target.value;
+                    if (!guestId) return;
+                    const selected = eventGuests.find(g => g.id === guestId);
+                    if (selected) {
+                      setGuestName(selected.name);
+                      setGuestRole(selected.role.toLowerCase().includes('mediador') ? 'mediador' : 'palestrante');
+                      setGuestInstitution(selected.institution || '');
+                    }
+                  }}
+                  defaultValue=""
+                >
+                  <option value="" disabled>-- Escolher Convidado --</option>
+                  {eventGuests.map(g => (
+                    <option key={g.id} value={g.id}>{g.name} ({g.role})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="form-group">
+              <input 
+                id="guest-name"
+                type="text" 
+                className="form-input" 
+                placeholder="Nome do Convidado" 
+                value={guestName} 
+                onChange={(e) => setGuestName(e.target.value)} 
+              />
+            </div>
+
+            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <select id="guest-role" className="form-select" value={guestRole} onChange={(e) => setGuestRole(e.target.value)}>
+                <option value="palestrante">Palestrante / Convidado</option>
+                <option value="mediador">Mediador / Debatedor</option>
+              </select>
+              <input 
+                id="guest-institution"
+                type="text" 
+                className="form-input" 
+                placeholder="Instituição (Ex: UFC)" 
+                value={guestInstitution} 
+                onChange={(e) => setGuestInstitution(e.target.value)} 
+              />
+            </div>
+
+            <button id="add-guest-btn" type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: '15px', padding: '8px' }} onClick={handleAddGuest}>
+              <Plus size={16} /> Adicionar Convidado à Lista
+            </button>
+
+            {/* Render guests list preview */}
+            {guests.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface-secondary)', padding: '10px', borderRadius: 'var(--radius-sm)', marginBottom: '15px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>Convidados adicionados para esta atividade:</span>
+                {guests.map((g, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center', fontSize: '0.85rem', background: '#fff', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                    <div>
+                      <strong>{g.name}</strong> ({g.role === 'palestrante' ? 'Palestrante' : 'Mediador'}) - {g.institution || 'S/I'}
+                    </div>
+                    <button type="button" style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '1.1rem' }} onClick={() => handleRemoveGuest(idx)}>&times;</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button id="act-submit-btn" type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+            Adicionar Atividade à Programação
+          </button>
+        </form>
+      </div>
+
+      {/* Program list table */}
+      <div className="glass-card">
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Programação Cadastrada</h3>
+        
+        {loading ? (
+          <div>Carregando atividades...</div>
+        ) : activities.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)' }}>Nenhuma atividade cadastrada para este evento. Use o formulário ao lado para adicionar.</div>
+        ) : (
+          <div className="table-container">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Horário / Tipo</th>
+                  <th>Atividade</th>
+                  <th>Local</th>
+                  <th>Convidados</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activities.map(act => (
+                  <tr key={act.id}>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                        {new Date(act.start_time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        até {new Date(act.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <span className={`badge ${act.type === 'palestra' ? 'badge-primary' : act.type === 'minicurso' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.7rem', marginTop: '6px' }}>
+                        {act.type}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{act.title}</div>
+                      {act.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{act.description}</div>}
+                    </td>
+                    <td>{act.location || 'Não especificado'}</td>
+                    <td>
+                      {act.guests && act.guests.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.8rem' }}>
+                          {act.guests.map((g, idx) => (
+                            <div key={idx} style={{ color: g.role === 'palestrante' ? 'var(--primary-light)' : 'var(--accent)' }}>
+                              • <strong>{g.name}</strong> ({g.role === 'palestrante' ? 'Palestrante' : 'Mediador'}) - {g.institution}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.8rem' }}>Sem convidados</span>
+                      )}
+                    </td>
+                    <td>
+                      <button className="btn btn-danger" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => handleDeleteActivity(act.id)}>
+                        Remover
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
