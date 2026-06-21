@@ -1,4 +1,5 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
+import { Routes, Route, Link, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { 
   Calendar, 
   User, 
@@ -26,15 +27,11 @@ import {
 const API_URL = 'http://localhost:5000';
 
 export default function App() {
+  const navigate = useNavigate();
+
   // Authentication State
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || '');
-  
-  // Navigation State
-  // Views: 'home' | 'event-page' | 'dashboard' | 'verify'
-  const [activeView, setActiveView] = useState('home');
-  const [currentEventSlug, setCurrentEventSlug] = useState(null);
-  const [currentEvent, setCurrentEvent] = useState(null);
   
   // Dashboard Sub-views: 'admin-events' | 'admin-checkin' | 'admin-submissions' | 'admin-metrics' | 'evaluator-reviews' | 'participant-events' | 'participant-submissions' | 'participant-certificates'
   const [dashboardSubView, setDashboardSubView] = useState('participant-events');
@@ -86,32 +83,8 @@ export default function App() {
   const handleLogout = () => {
     setToken('');
     setUser(null);
-    setActiveView('home');
+    navigate('/');
     showToast('Logout realizado com sucesso.');
-  };
-
-  // Load active event when slug changes
-  useEffect(() => {
-    if (currentEventSlug) {
-      fetchEventDetails(currentEventSlug);
-    }
-  }, [currentEventSlug]);
-
-  const fetchEventDetails = async (slug) => {
-    try {
-      const res = await fetch(`${API_URL}/api/events/by-slug/${slug}`);
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentEvent(data);
-      } else {
-        showToast('Erro ao carregar detalhes do evento', 'danger');
-        setActiveView('home');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao carregar detalhes do evento', 'danger');
-      setActiveView('home');
-    }
   };
 
   return (
@@ -137,16 +110,16 @@ export default function App() {
 
       {/* Navigation Header */}
       <nav className="main-nav">
-        <div className="logo-container" style={{ cursor: 'pointer' }} onClick={() => { setActiveView('home'); setCurrentEventSlug(null); }}>
+        <div className="logo-container" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
           <BookOpen size={24} />
           <span>G-TERCOA <span style={{ color: 'var(--accent-light)', fontWeight: 500 }}>Eventos</span></span>
         </div>
         <div className="nav-links">
-          <a href="#" onClick={(e) => { e.preventDefault(); setActiveView('home'); setCurrentEventSlug(null); }}>Eventos</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); setActiveView('verify'); }}>Validar Certificado</a>
+          <Link to="/">Eventos</Link>
+          <Link to="/verify">Validar Certificado</Link>
           {user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-              <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.9rem' }} onClick={() => setActiveView('dashboard')}>
+              <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.9rem' }} onClick={() => navigate('/dashboard')}>
                 <LayoutDashboard size={16} />
                 Painel
               </button>
@@ -169,36 +142,37 @@ export default function App() {
 
       {/* MAIN VIEW ROUTER */}
       <main style={{ minHeight: 'calc(100vh - 70px)' }}>
-        {activeView === 'home' && (
-          <HomeView 
-            setActiveView={setActiveView} 
-            setCurrentEventSlug={setCurrentEventSlug} 
-            showToast={showToast} 
-            token={token}
+        <Routes>
+          <Route path="/" element={<HomeView showToast={showToast} token={token} />} />
+          <Route 
+            path="/evento/:slug" 
+            element={
+              <EventEditionView 
+                token={token} 
+                user={user} 
+                showToast={showToast} 
+                setShowLoginModal={setShowLoginModal} 
+              />
+            } 
           />
-        )}
-        {activeView === 'event-page' && currentEvent && (
-          <EventEditionView 
-            event={currentEvent} 
-            token={token} 
-            user={user}
-            setActiveView={setActiveView}
-            showToast={showToast}
-            setShowLoginModal={setShowLoginModal}
+          <Route path="/verify" element={<CertificateVerifyView showToast={showToast} />} />
+          <Route 
+            path="/dashboard" 
+            element={
+              user ? (
+                <DashboardRouter 
+                  user={user} 
+                  token={token} 
+                  subView={dashboardSubView} 
+                  setSubView={setDashboardSubView} 
+                  showToast={showToast}
+                />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            } 
           />
-        )}
-        {activeView === 'verify' && (
-          <CertificateVerifyView showToast={showToast} />
-        )}
-        {activeView === 'dashboard' && user && (
-          <DashboardRouter 
-            user={user} 
-            token={token} 
-            subView={dashboardSubView} 
-            setSubView={setDashboardSubView} 
-            showToast={showToast}
-          />
-        )}
+        </Routes>
       </main>
 
       {/* FOOTER */}
@@ -231,7 +205,8 @@ export default function App() {
 // ==========================================
 
 // 1. HOME VIEW (LANDING PAGE)
-function HomeView({ setActiveView, setCurrentEventSlug, showToast }) {
+function HomeView({ showToast }) {
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -325,8 +300,7 @@ function HomeView({ setActiveView, setCurrentEventSlug, showToast }) {
                   </span>
                 </div>
                 <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
-                  setCurrentEventSlug(event.slug);
-                  setActiveView('event-page');
+                  navigate(`/evento/${event.slug}`);
                 }}>
                   Acessar Evento
                   <ChevronRight size={16} />
@@ -341,7 +315,11 @@ function HomeView({ setActiveView, setCurrentEventSlug, showToast }) {
 }
 
 // 2. DETALHES DA EDIÇÃO DO EVENTO (MULTI-TENANT HOME PAGE DE CADA EVENTO)
-function EventEditionView({ event, token, user, setActiveView, showToast, setShowLoginModal }) {
+function EventEditionView({ token, user, showToast, setShowLoginModal }) {
+  const { slug } = useParams();
+  const navigate = useNavigate();
+  const [event, setEvent] = useState(null);
+  const [loadingEvent, setLoadingEvent] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [submittingReg, setSubmittingReg] = useState(false);
   const [submissionFile, setSubmissionFile] = useState(null);
@@ -362,9 +340,35 @@ function EventEditionView({ event, token, user, setActiveView, showToast, setSho
   const [activities, setActivities] = useState([]);
   const [loadingActivities, setLoadingActivities] = useState(true);
 
+  // Fetch Event Details
   useEffect(() => {
-    checkUserRegistration();
-    fetchActivities();
+    const fetchEventDetails = async () => {
+      try {
+        setLoadingEvent(true);
+        const res = await fetch(`${API_URL}/api/events/by-slug/${slug}`);
+        if (res.ok) {
+          const data = await res.json();
+          setEvent(data);
+        } else {
+          showToast('Erro ao carregar detalhes do evento', 'danger');
+          navigate('/');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao carregar detalhes do evento', 'danger');
+        navigate('/');
+      } finally {
+        setLoadingEvent(false);
+      }
+    };
+    fetchEventDetails();
+  }, [slug]);
+
+  useEffect(() => {
+    if (event) {
+      checkUserRegistration();
+      fetchActivities();
+    }
   }, [event, user]);
 
   const fetchActivities = async () => {
@@ -513,6 +517,14 @@ function EventEditionView({ event, token, user, setActiveView, showToast, setSho
       setSubmittingWork(false);
     }
   };
+
+  if (loadingEvent) {
+    return <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-secondary)' }}>Carregando detalhes do evento...</div>;
+  }
+
+  if (!event) {
+    return <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-secondary)' }}>Evento não encontrado.</div>;
+  }
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
@@ -746,7 +758,7 @@ function EventEditionView({ event, token, user, setActiveView, showToast, setSho
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => {
-                  setActiveView('dashboard');
+                  navigate('/dashboard');
                 }}>
                   Acessar Área do Participante
                 </button>
@@ -909,11 +921,16 @@ function DashboardRouter({ user, token, subView, setSubView, showToast }) {
           </>
         )}
  
-        {user.role === 'evaluator' && (
+        {(user.role === 'evaluator' || user.role === 'admin') && (
           <>
-            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Avaliador</div>
-            <a href="#" className={`sidebar-link ${subView === 'evaluator-reviews' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('evaluator-reviews'); }}>
-              <FileText size={18} /> Avaliar Trabalhos
+            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Comissão Científica</div>
+            {user.role === 'evaluator' && (
+              <a href="#" className={`sidebar-link ${subView === 'evaluator-reviews' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('evaluator-reviews'); }}>
+                <FileText size={18} /> Avaliar Trabalhos
+              </a>
+            )}
+            <a href="#" className={`sidebar-link ${subView === 'coordinator-submissions' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('coordinator-submissions'); }}>
+              <Users size={18} /> Coordenação de Eixos
             </a>
           </>
         )}
@@ -937,6 +954,7 @@ function DashboardRouter({ user, token, subView, setSubView, showToast }) {
         {subView === 'participant-submissions' && <ParticipantSubmissionsView token={token} />}
         {subView === 'participant-certificates' && <ParticipantCertificatesView token={token} showToast={showToast} />}
         {subView === 'evaluator-reviews' && <EvaluatorReviewsView token={token} showToast={showToast} />}
+        {subView === 'coordinator-submissions' && <CoordinatorSubmissionsView token={token} showToast={showToast} />}
         {subView === 'admin-metrics' && <AdminMetricsView token={token} />}
         {subView === 'admin-events' && <AdminEventsView token={token} showToast={showToast} />}
       </section>
@@ -1554,10 +1572,9 @@ function EvaluatorReviewsView({ token, showToast }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', fontSize: '0.9rem', marginBottom: '20px', background: 'var(--surface-secondary)', padding: '15px', borderRadius: 'var(--radius-sm)' }}>
             <div>
               <div><strong>Evento:</strong> {selectedSub.event_name}</div>
-              <div><strong>Autor Principal:</strong> {selectedSub.submitter_name}</div>
+              <div><strong>Eixo Temático:</strong> {selectedSub.thematic_axis}</div>
             </div>
             <div>
-              <div><strong>Eixo Temático:</strong> {selectedSub.thematic_axis}</div>
               <div>
                 <strong>Trabalho Escrito:</strong>{' '}
                 <a href={`${API_URL}${selectedSub.file_path}`} target="_blank" rel="noreferrer" style={{ fontWeight: 'bold' }}>
@@ -1648,8 +1665,316 @@ function EvaluatorReviewsView({ token, showToast }) {
   );
 }
 
-// ==========================================
-// ADMIN PORTAL MODULES
+// B. COORDINATOR SUBMISSIONS VIEW
+function CoordinatorSubmissionsView({ token, showToast }) {
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSub, setSelectedSub] = useState(null);
+  const [evaluatorsList, setEvaluatorsList] = useState([]);
+  const [loadingEvaluators, setLoadingEvaluators] = useState(false);
+  
+  // Assign reviewer modal state
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedReviewerId, setSelectedReviewerId] = useState('');
+  const [isAssigning, setIsAssigning] = useState(false);
+
+  // Final decision form state
+  const [showDecisionModal, setShowDecisionModal] = useState(false);
+  const [finalStatus, setFinalStatus] = useState('');
+  const [finalComments, setFinalComments] = useState('');
+  const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
+
+  useEffect(() => {
+    fetchCoordinationSubmissions();
+  }, []);
+
+  const fetchCoordinationSubmissions = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/coordination/submissions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissions(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchEventEvaluators = async (eventId) => {
+    setLoadingEvaluators(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/assigned-evaluators`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvaluatorsList(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingEvaluators(false);
+    }
+  };
+
+  const openAssignModal = (sub) => {
+    setSelectedSub(sub);
+    setSelectedReviewerId(sub.reviewer_id || '');
+    fetchEventEvaluators(sub.event_id);
+    setShowAssignModal(true);
+  };
+
+  const handleAssignReviewer = async (e) => {
+    e.preventDefault();
+    if (!selectedReviewerId) {
+      showToast('Selecione um avaliador', 'danger');
+      return;
+    }
+    setIsAssigning(true);
+    try {
+      const res = await fetch(`${API_URL}/api/submissions/${selectedSub.id}/assign-evaluator`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ reviewer_id: selectedReviewerId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Avaliador alocado com sucesso!');
+        setShowAssignModal(false);
+        setSelectedSub(null);
+        fetchCoordinationSubmissions();
+      } else {
+        showToast(data.error || 'Erro ao alocar avaliador', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao alocar avaliador', 'danger');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const openDecisionModal = (sub) => {
+    setSelectedSub(sub);
+    setFinalStatus(sub.status === 'under_review' ? '' : sub.status);
+    setFinalComments(sub.review_comments || '');
+    setShowDecisionModal(true);
+  };
+
+  const handleCoordinatorDecision = async (e) => {
+    e.preventDefault();
+    if (!finalStatus) {
+      showToast('Selecione o parecer final', 'danger');
+      return;
+    }
+    setIsSubmittingDecision(true);
+    try {
+      const res = await fetch(`${API_URL}/api/submissions/${selectedSub.id}/coordinator-decision`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: finalStatus, review_comments: finalComments })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Parecer final salvo com sucesso!');
+        setShowDecisionModal(false);
+        setSelectedSub(null);
+        fetchCoordinationSubmissions();
+      } else {
+        showToast(data.error || 'Erro ao salvar parecer', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede', 'danger');
+    } finally {
+      setIsSubmittingDecision(false);
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const badges = {
+      'under_review': <span className="badge badge-warning">Sob Avaliação</span>,
+      'accepted': <span className="badge badge-success">Aceito</span>,
+      'accepted_with_remarks': <span className="badge badge-primary">Aceito com Ressalvas</span>,
+      'rejected': <span className="badge badge-danger">Rejeitado</span>
+    };
+    return badges[status] || <span className="badge">{status}</span>;
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '24px' }}>Coordenação de Trabalhos Científicos</h2>
+      
+      {/* Assign Reviewer Modal */}
+      {showAssignModal && selectedSub && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="glass-card" style={{ width: '450px', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Alocar Avaliador</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              <strong>Artigo:</strong> {selectedSub.title}<br />
+              <strong>Eixo:</strong> {selectedSub.thematic_axis}
+            </p>
+            <form onSubmit={handleAssignReviewer}>
+              <div className="form-group">
+                <label className="form-label">Selecionar Avaliador *</label>
+                {loadingEvaluators ? (
+                  <div>Carregando avaliadores do evento...</div>
+                ) : evaluatorsList.length === 0 ? (
+                  <div style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Nenhum avaliador geral cadastrado para este evento. Adicione avaliadores na tela do Admin.</div>
+                ) : (
+                  <select 
+                    className="form-select" 
+                    required 
+                    value={selectedReviewerId} 
+                    onChange={(e) => setSelectedReviewerId(e.target.value)}
+                  >
+                    <option value="">Selecione...</option>
+                    {evaluatorsList.map(ev => (
+                      <option key={ev.id} value={ev.id}>{ev.name} ({ev.email})</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="submit" className="btn btn-primary" disabled={isAssigning || evaluatorsList.length === 0}>
+                  {isAssigning ? 'Salvando...' : 'Confirmar Designação'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowAssignModal(false); setSelectedSub(null); }}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Coordinator Decision Modal */}
+      {showDecisionModal && selectedSub && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="glass-card" style={{ width: '550px', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Decisão Final da Coordenação</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              <strong>Artigo:</strong> {selectedSub.title}<br />
+              <strong>Eixo:</strong> {selectedSub.thematic_axis}<br />
+              <strong>Parecerista Designado:</strong> {selectedSub.reviewer_name || 'Nenhum'}
+            </p>
+            <form onSubmit={handleCoordinatorDecision}>
+              <div className="form-group">
+                <label className="form-label">Resultado Final *</label>
+                <select className="form-select" required value={finalStatus} onChange={(e) => setFinalStatus(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  <option value="accepted">Aceito</option>
+                  <option value="accepted_with_remarks">Aceito com Ressalvas</option>
+                  <option value="rejected">Rejeitado</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Comentários e Parecer da Coordenação *</label>
+                <textarea 
+                  className="form-input" 
+                  style={{ minHeight: '120px' }} 
+                  required
+                  placeholder="Insira as observações finais enviadas ao participante..."
+                  value={finalComments}
+                  onChange={(e) => setFinalComments(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="submit" className="btn btn-primary" disabled={isSubmittingDecision}>
+                  {isSubmittingDecision ? 'Salvando...' : 'Salvar Decisão Oficial'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowDecisionModal(false); setSelectedSub(null); }}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div>Carregando submissões sob sua coordenação...</div>
+      ) : submissions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Nenhuma submissão encontrada sob sua coordenação para eixos ativos.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table className="custom-table">
+            <thead>
+              <tr>
+                <th>Evento</th>
+                <th>Título do Artigo</th>
+                <th>Eixo Temático</th>
+                <th>Avaliador Técnico</th>
+                <th>Status</th>
+                <th>Parecer Final</th>
+                <th style={{ width: '220px', textAlign: 'center' }}>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {submissions.map(sub => (
+                <tr key={sub.id}>
+                  <td>{sub.event_name}</td>
+                  <td style={{ fontWeight: 600 }}>{sub.title}</td>
+                  <td>{sub.thematic_axis}</td>
+                  <td>
+                    {sub.reviewer_name ? (
+                      <span style={{ fontWeight: 'bold', color: 'var(--primary-light)' }}>{sub.reviewer_name}</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Não designado</span>
+                    )}
+                  </td>
+                  <td>{getStatusBadge(sub.status)}</td>
+                  <td>
+                    {sub.review_comments ? (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sub.review_comments.substring(0, 50)}...</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>Pendente</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                      <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 10px', fontSize: '0.78rem', textDecoration: 'none', display: 'inline-block' }}>
+                        Documento
+                      </a>
+                      <button className="btn btn-primary" style={{ padding: '6px 10px', fontSize: '0.78rem' }} onClick={() => openAssignModal(sub)}>
+                        Alocar
+                      </button>
+                      <button className="btn btn-accent" style={{ padding: '6px 10px', fontSize: '0.78rem' }} onClick={() => openDecisionModal(sub)}>
+                        Decidir
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// C. ADMIN PORTAL MODULES
 // ==========================================
 
 // A. METRICS VIEW
@@ -1887,11 +2212,42 @@ function AdminEventsView({ token, showToast }) {
   const [isIssuing, setIsIssuing] = useState(false);
   const [registrationsList, setRegistrationsList] = useState([]);
   const [submissionsList, setSubmissionsList] = useState([]);
+  const [assignmentsList, setAssignmentsList] = useState([]);
+  const [evaluatorsPool, setEvaluatorsPool] = useState([]);
 
-  // Load events list on mount
+  // Load events list and evaluators pool on mount
   useEffect(() => {
     fetchEvents();
+    fetchEvaluatorsPool();
   }, []);
+
+  const fetchEvaluatorsPool = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/users/evaluators`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvaluatorsPool(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchAssignments = async (eventId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/assignments`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAssignmentsList(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchEvents = async () => {
     try {
@@ -1964,6 +2320,7 @@ function AdminEventsView({ token, showToast }) {
     fetchCertificates(ev.id);
     fetchRegistrations(ev.id);
     fetchSubmissions(ev.id);
+    fetchAssignments(ev.id);
   };
 
   const fetchCertificates = async (eventId) => {
@@ -2968,6 +3325,216 @@ function AdminEventsView({ token, showToast }) {
     );
   };
 
+  const renderAssignmentsTab = () => {
+    const [selectedUser, setSelectedUser] = useState('');
+    const [assignedRole, setAssignedRole] = useState('evaluator');
+    const [selectedAxis, setSelectedAxis] = useState('');
+    const [isAssigningUser, setIsAssigningUser] = useState(false);
+
+    const handleCreateAssignment = async (e) => {
+      e.preventDefault();
+      if (!selectedUser || !assignedRole) {
+        showToast('Selecione o avaliador e o papel', 'danger');
+        return;
+      }
+      if (assignedRole === 'coordinator' && !selectedAxis) {
+        showToast('Selecione o eixo para o coordenador', 'danger');
+        return;
+      }
+
+      setIsAssigningUser(true);
+      try {
+        const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/assignments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            user_id: selectedUser,
+            role: assignedRole,
+            axis: assignedRole === 'coordinator' ? selectedAxis : null
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || 'Membro designado com sucesso!');
+          setSelectedUser('');
+          setSelectedAxis('');
+          fetchAssignments(selectedEventForManagement.id);
+        } else {
+          showToast(data.error || 'Erro ao realizar designação', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao realizar designação', 'danger');
+      } finally {
+        setIsAssigningUser(false);
+      }
+    };
+
+    const handleRemoveAssignment = async (assignmentId) => {
+      if (!window.confirm('Deseja realmente remover esta designação?')) return;
+      try {
+        const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/assignments/${assignmentId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          showToast('Designação removida com sucesso!');
+          fetchAssignments(selectedEventForManagement.id);
+        } else {
+          const data = await res.json();
+          showToast(data.error || 'Erro ao remover designação', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao remover designação', 'danger');
+      }
+    };
+
+    const coordinators = assignmentsList.filter(a => a.role === 'coordinator');
+    const evaluators = assignmentsList.filter(a => a.role === 'evaluator');
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
+        <div className="glass-card" style={{ height: 'fit-content' }}>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Designar Membro da Comissão</h3>
+          
+          <form onSubmit={handleCreateAssignment}>
+            <div className="form-group">
+              <label className="form-label">Selecionar Avaliador *</label>
+              <select 
+                className="form-select" 
+                required 
+                value={selectedUser} 
+                onChange={(e) => setSelectedUser(e.target.value)}
+              >
+                <option value="">Selecione um avaliador cadastrado...</option>
+                {evaluatorsPool.map(u => (
+                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Papel na Comissão *</label>
+              <select 
+                className="form-select" 
+                required 
+                value={assignedRole} 
+                onChange={(e) => {
+                  setAssignedRole(e.target.value);
+                  if (e.target.value !== 'coordinator') setSelectedAxis('');
+                }}
+              >
+                <option value="evaluator">Avaliador (Geral)</option>
+                <option value="coordinator">Coordenador de Eixo</option>
+              </select>
+            </div>
+
+            {assignedRole === 'coordinator' && (
+              <div className="form-group">
+                <label className="form-label">Eixo Temático Responsável *</label>
+                <select 
+                  className="form-select" 
+                  required={assignedRole === 'coordinator'} 
+                  value={selectedAxis} 
+                  onChange={(e) => setSelectedAxis(e.target.value)}
+                >
+                  <option value="">Selecione o eixo do evento...</option>
+                  {selectedEventForManagement.thematic_axes && selectedEventForManagement.thematic_axes.map((axis, i) => (
+                    <option key={i} value={axis}>{axis}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={isAssigningUser}>
+              {isAssigningUser ? 'Processando...' : 'Designar Membro'}
+            </button>
+          </form>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Eixos Designados</h3>
+            {coordinators.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador designado para este evento.</p>
+            ) : (
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Nome</th>
+                      <th>E-mail</th>
+                      <th>Eixo Temático</th>
+                      <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coordinators.map(coord => (
+                      <tr key={coord.id}>
+                        <td style={{ fontWeight: 600 }}>{coord.user_name}</td>
+                        <td>{coord.user_email}</td>
+                        <td style={{ color: 'var(--primary-light)', fontWeight: 600 }}>{coord.axis}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
+                            onClick={() => handleRemoveAssignment(coord.id)}
+                          >
+                            Remover
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Avaliadores Gerais Designados</h3>
+            {evaluators.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum avaliador designado para este evento.</p>
+            ) : (
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Nome</th>
+                      <th>E-mail</th>
+                      <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evaluators.map(ev => (
+                      <tr key={ev.id}>
+                        <td style={{ fontWeight: 600 }}>{ev.user_name}</td>
+                        <td>{ev.user_email}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
+                            onClick={() => handleRemoveAssignment(ev.id)}
+                          >
+                            Remover
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Main UI render logic
   return (
     <div>
@@ -3039,6 +3606,12 @@ function AdminEventsView({ token, showToast }) {
               <CheckCircle size={16} /> Credenciamento & Inscrições
             </button>
             <button 
+              style={tabStyle(workspaceTab === 'assignments')}
+              onClick={() => setWorkspaceTab('assignments')}
+            >
+              <Users size={16} /> Comissão & Avaliadores
+            </button>
+            <button 
               style={tabStyle(workspaceTab === 'certificates')}
               onClick={() => setWorkspaceTab('certificates')}
             >
@@ -3052,6 +3625,7 @@ function AdminEventsView({ token, showToast }) {
             {workspaceTab === 'programming_guests' && renderProgrammingGuestsTab()}
             {workspaceTab === 'submissions' && renderSubmissionsTab()}
             {workspaceTab === 'checkin' && renderCheckinTab()}
+            {workspaceTab === 'assignments' && renderAssignmentsTab()}
             {workspaceTab === 'certificates' && renderCertificatesTab()}
           </div>
         </div>

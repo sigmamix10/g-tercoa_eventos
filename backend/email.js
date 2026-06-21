@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const nodemailer = require('nodemailer');
 
 const sentEmailsDir = path.join(__dirname, 'sent_emails');
 
@@ -9,21 +10,20 @@ if (!fs.existsSync(sentEmailsDir)) {
 }
 
 /**
- * Simulates sending an email by writing an HTML file and storing the PDF attachment locally.
+ * Sends a receipt email. If SMTP is configured, sends a real email.
+ * Otherwise, simulates sending by saving the HTML and PDF locally.
  */
 async function sendReceiptEmail(reg, eventName, userName, userEmail, pdfBuffer) {
   try {
     const timestamp = Date.now();
-    const pdfFilename = `attachment-${reg.id}-${timestamp}.pdf`;
-    const emailFilename = `email-${reg.id}-${timestamp}.html`;
+    const isSmtpConfigured = !!process.env.SMTP_HOST;
+    
+    // Choose attachment filename
+    const pdfFilename = isSmtpConfigured 
+      ? `comprovante-${reg.id}.pdf`
+      : `attachment-${reg.id}-${timestamp}.pdf`;
 
-    const pdfPath = path.join(sentEmailsDir, pdfFilename);
-    const emailPath = path.join(sentEmailsDir, emailFilename);
-
-    // 1. Save PDF attachment physically
-    fs.writeFileSync(pdfPath, pdfBuffer);
-
-    // 2. Build email template
+    // Build email HTML template
     const emailHtml = `
 <!DOCTYPE html>
 <html>
@@ -133,7 +133,7 @@ async function sendReceiptEmail(reg, eventName, userName, userEmail, pdfBuffer) 
 <body>
   <div class="container">
     <div class="meta-box">
-      <strong>De:</strong> G-TERCOA Eventos &lt;no-reply@gtercoa.org&gt;<br>
+      <strong>De:</strong> ${process.env.EMAIL_FROM || 'G-TERCOA Eventos <no-reply@gtercoa.org>'}<br>
       <strong>Para:</strong> ${userName} &lt;${userEmail}&gt;<br>
       <strong>Assunto:</strong> Inscrição Confirmada - ${eventName}<br>
       <strong>Data:</strong> ${new Date().toLocaleString('pt-BR')}<br>
@@ -185,11 +185,49 @@ async function sendReceiptEmail(reg, eventName, userName, userEmail, pdfBuffer) 
 </html>
     `;
 
-    fs.writeFileSync(emailPath, emailHtml);
-    console.log(`[Email Simulation] Email saved to: ${emailPath}`);
-    console.log(`[Email Simulation] PDF attachment saved to: ${pdfPath}`);
+    if (isSmtpConfigured) {
+      console.log(`[SMTP Email] Iniciando envio real para ${userEmail} via ${process.env.SMTP_HOST}...`);
+      
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT) || 587,
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS
+        }
+      });
+
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || '"G-TERCOA Eventos" <no-reply@gtercoa.org>',
+        to: userEmail,
+        subject: `Inscrição Confirmada - ${eventName}`,
+        html: emailHtml,
+        attachments: [
+          {
+            filename: pdfFilename,
+            content: pdfBuffer
+          }
+        ]
+      };
+
+      await transporter.sendMail(mailOptions);
+      console.log(`[SMTP Email] E-mail enviado com sucesso para ${userEmail}.`);
+    } else {
+      // Local fallback simulation
+      const emailFilename = `email-${reg.id}-${timestamp}.html`;
+      const pdfPath = path.join(sentEmailsDir, pdfFilename);
+      const emailPath = path.join(sentEmailsDir, emailFilename);
+
+      // Save files locally
+      fs.writeFileSync(pdfPath, pdfBuffer);
+      fs.writeFileSync(emailPath, emailHtml);
+
+      console.log(`[Email Simulation] Fallback ativo. E-mail salvo em: ${emailPath}`);
+      console.log(`[Email Simulation] PDF anexo salvo em: ${pdfPath}`);
+    }
   } catch (error) {
-    console.error('Error simulating email sending:', error);
+    console.error('Erro ao enviar ou simular e-mail:', error);
   }
 }
 

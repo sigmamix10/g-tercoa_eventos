@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -12,8 +13,8 @@ const { runQuery, getQuery, allQuery } = require('./db');
 const { sendReceiptEmail } = require('./email');
 
 const app = express();
-const PORT = 5000;
-const JWT_SECRET = 'g_tercoa_secret_key_12345';
+const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'g_tercoa_secret_key_12345';
 
 // Middlewares
 app.use(cors());
@@ -812,14 +813,212 @@ app.get('/api/events/:id/submissions', authenticateToken, requireRole(['admin'])
   }
 });
 
-// Listar Trabalhos atribuídos ao Avaliador Logado
+// ==========================================
+// EVENT ASSIGNMENTS (COORDINATORS & EVALUATORS)
+// ==========================================
+
+// Listar coordenadores e avaliadores de um Evento (Admin)
+app.get('/api/events/:id/assignments', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const assignments = await allQuery(`
+      SELECT ea.id, ea.user_id, ea.role, ea.axis, u.name as user_name, u.email as user_email
+      FROM event_assignments ea
+      JOIN users u ON ea.user_id = u.id
+      WHERE ea.event_id = ?
+      ORDER BY ea.role DESC, u.name ASC
+    `, [req.params.id]);
+
+    res.json(assignments);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar designações' });
+  }
+});
+
+// Designar coordenador ou avaliador para um Evento (Admin)
+app.post('/api/events/:id/assignments', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { user_id, role, axis } = req.body;
+  const eventId = req.params.id;
+
+  if (!user_id || !role) {
+    return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
+  }
+
+  if (role === 'coordinator' && !axis) {
+    return res.status(400).json({ error: 'O coordenador precisa de um eixo temático' });
+  }
+
+  try {
+    // Check if user is an evaluator in the system
+    const user = await getQuery("SELECT role FROM users WHERE id = ?", [user_id]);
+    if (!user || (user.role !== 'evaluator' && user.role !== 'admin')) {
+      return res.status(400).json({ error: 'Apenas usuários com perfil de Avaliador podem ser designados para a comissão.' });
+    }
+
+    const assignmentId = crypto.randomUUID();
+    await runQuery(`
+      INSERT INTO event_assignments (id, event_id, user_id, role, axis)
+      VALUES (?, ?, ?, ?, ?)
+    `, [assignmentId, eventId, user_id, role, role === 'coordinator' ? axis : null]);
+
+    res.status(201).json({ message: 'Designação realizada com sucesso!' });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Esta pessoa já possui esta mesma atribuição neste evento.' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao criar designação' });
+  }
+});
+
+// Remover designação (Admin)
+app.delete('/api/events/:eventId/assignments/:assignmentId', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    await runQuery('DELETE FROM event_assignments WHERE id = ? AND event_id = ?', [req.params.assignmentId, req.params.eventId]);
+    res.json({ message: 'Designação removida com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao remover designação' });
+  }
+});
+
+// ==========================================
+// COORDINATION VIEW AND CONTROLS
+// ==========================================
+
+// Listar submissões do eixo do Coordenador logado (Avaliação às cegas - sem expor autor)
+app.get('/api/coordination/submissions', authenticateToken, requireRole(['evaluator', 'admin']), async (req, res) => {
+  try {
+    let submissions;
+    if (req.user.role === 'admin') {
+      // Admins can see all submissions
+      submissions = await allQuery(`
+        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.reviewer_id, s.review_comments, s.created_at, e.name as event_name, rev.name as reviewer_name
+        FROM submissions s
+        JOIN events e ON s.event_id = e.id
+        LEFT JOIN users rev ON s.reviewer_id = rev.id
+        ORDER BY s.created_at DESC
+      `);
+    } else {
+      // Coordenador de Eixo
+      submissions = await allQuery(`
+        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.reviewer_id, s.review_comments, s.created_at, e.name as event_name, rev.name as reviewer_name
+        FROM submissions s
+        JOIN events e ON s.event_id = e.id
+        JOIN event_assignments ea ON s.event_id = ea.event_id AND s.thematic_axis = ea.axis
+        LEFT JOIN users rev ON s.reviewer_id = rev.id
+        WHERE ea.user_id = ? AND ea.role = 'coordinator'
+        ORDER BY s.created_at DESC
+      `, [req.user.id]);
+    }
+
+    res.json(submissions);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar submissões para coordenação' });
+  }
+});
+
+// Listar avaliadores designados a um evento (Coordenadores usam para escolher)
+app.get('/api/events/:id/assigned-evaluators', authenticateToken, requireRole(['evaluator', 'admin']), async (req, res) => {
+  try {
+    const evaluators = await allQuery(`
+      SELECT u.id, u.name, u.email
+      FROM event_assignments ea
+      JOIN users u ON ea.user_id = u.id
+      WHERE ea.event_id = ? AND ea.role = 'evaluator'
+      ORDER BY u.name ASC
+    `, [req.params.id]);
+
+    res.json(evaluators);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao carregar avaliadores' });
+  }
+});
+
+// Coordenador de Eixo: Designar Avaliador para uma submissão
+app.post('/api/submissions/:id/assign-evaluator', authenticateToken, requireRole(['evaluator', 'admin']), async (req, res) => {
+  const { reviewer_id } = req.body;
+  const submissionId = req.params.id;
+
+  if (!reviewer_id) {
+    return res.status(400).json({ error: 'Selecione um avaliador' });
+  }
+
+  try {
+    // 1. Get submission details
+    const sub = await getQuery('SELECT event_id, thematic_axis FROM submissions WHERE id = ?', [submissionId]);
+    if (!sub) return res.status(404).json({ error: 'Submissão não encontrada' });
+
+    // 2. Verify coordinator access (Admins bypass)
+    if (req.user.role !== 'admin') {
+      const coordAssignment = await getQuery(`
+        SELECT id FROM event_assignments 
+        WHERE event_id = ? AND user_id = ? AND role = 'coordinator' AND axis = ?
+      `, [sub.event_id, req.user.id, sub.thematic_axis]);
+
+      if (!coordAssignment) {
+        return res.status(403).json({ error: 'Acesso negado: você não é coordenador deste eixo temático' });
+      }
+    }
+
+    // 3. Update reviewer_id
+    await runQuery('UPDATE submissions SET reviewer_id = ? WHERE id = ?', [reviewer_id, submissionId]);
+    res.json({ message: 'Avaliador alocado com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao alocar avaliador' });
+  }
+});
+
+// Coordenador de Eixo: Parecer/Decisão final do trabalho
+app.post('/api/submissions/:id/coordinator-decision', authenticateToken, requireRole(['evaluator', 'admin']), async (req, res) => {
+  const { status, review_comments } = req.body;
+  const submissionId = req.params.id;
+
+  if (!status || !['accepted', 'accepted_with_remarks', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Status de avaliação inválido' });
+  }
+
+  try {
+    // 1. Get submission details
+    const sub = await getQuery('SELECT event_id, thematic_axis FROM submissions WHERE id = ?', [submissionId]);
+    if (!sub) return res.status(404).json({ error: 'Submissão não encontrada' });
+
+    // 2. Verify coordinator access (Admins bypass)
+    if (req.user.role !== 'admin') {
+      const coordAssignment = await getQuery(`
+        SELECT id FROM event_assignments 
+        WHERE event_id = ? AND user_id = ? AND role = 'coordinator' AND axis = ?
+      `, [sub.event_id, req.user.id, sub.thematic_axis]);
+
+      if (!coordAssignment) {
+        return res.status(403).json({ error: 'Acesso negado: você não é coordenador deste eixo temático' });
+      }
+    }
+
+    // 3. Update status and comments
+    await runQuery(`
+      UPDATE submissions
+      SET status = ?, review_comments = ?
+      WHERE id = ?
+    `, [status, review_comments || '', submissionId]);
+
+    res.json({ message: 'Decisão do coordenador salva com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao salvar decisão da coordenação' });
+  }
+});
+
+// Listar Trabalhos atribuídos ao Avaliador Logado (Avaliação às Cegas)
 app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator']), async (req, res) => {
   try {
     const toReview = await allQuery(`
-      SELECT s.*, e.name as event_name, u.name as submitter_name
+      SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name
       FROM submissions s
       JOIN events e ON s.event_id = e.id
-      JOIN users u ON s.user_id = u.id
       WHERE s.reviewer_id = ?
       ORDER BY s.created_at DESC
     `, [req.user.id]);
@@ -831,11 +1030,11 @@ app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator
   }
 });
 
-// Listar Trabalhos do próprio Participante Logado
+// Listar Trabalhos do próprio Participante Logado (Ocultando identificação do avaliador)
 app.get('/api/submissions/my-submissions', authenticateToken, async (req, res) => {
   try {
     const mySubmissions = await allQuery(`
-      SELECT s.*, e.name as event_name, e.slug as event_slug
+      SELECT s.id, s.event_id, s.title, s.authors, s.affiliation, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name, e.slug as event_slug
       FROM submissions s
       JOIN events e ON s.event_id = e.id
       WHERE s.user_id = ?
