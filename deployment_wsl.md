@@ -10,18 +10,34 @@ Este guia contém as instruções completas para transferir, configurar e execut
 
 ## ⚡ Método Recomendado: Script Automatizado
 
-Para facilitar a instalação, criamos o script `setup.sh` no repositório. Ele executa todos os passos listados neste documento de forma totalmente automatizada.
+Para facilitar a instalação, o repositório contém o script `setup.sh`. Ele executa todos os passos listados neste documento de forma totalmente automatizada e inteligente.
 
-### Como executar o Script no WSL:
+O script detecta se você o está executando de dentro do diretório do projeto. Portanto, você pode executá-lo diretamente a partir da sua pasta montada do Windows no WSL sem a necessidade de autenticação no GitHub:
+
+### Opção A: Executar a partir da pasta local (Sem necessidade de login/token do GitHub)
+Se o seu projeto estiver na unidade `D:` do Windows (caminho `/mnt/d/g-tercoa_eventos`):
 1. Abra o seu terminal WSL Ubuntu.
-2. Baixe o script de instalação direta a partir do seu repositório:
+2. Navegue até a pasta do projeto no Windows:
+   ```bash
+   cd /mnt/d/g-tercoa_eventos
+   ```
+3. Torne o script executável e rode-o:
+   ```bash
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+   *O script detectará que está na pasta do projeto e copiará todos os arquivos locais automaticamente para a home nativa do Linux (`~/g-tercoa_eventos`).*
+
+### Opção B: Clonar via GitHub (Instalação Direta)
+Se preferir clonar o repositório diretamente (pode exigir credenciais de acesso se o repositório for privado):
+1. Abra o seu terminal WSL Ubuntu.
+2. Baixe e rode o script:
    ```bash
    curl -fsSL https://raw.githubusercontent.com/sigmamix10/g-tercoa_eventos/main/setup.sh -o setup.sh
    chmod +x setup.sh
    ./setup.sh
    ```
-   *(Caso sua branch principal seja `master` em vez de `main`, substitua o nome correspondente na URL).*
-3. O script fará a instalação de todas as dependências do sistema operacional, fará o clone do repositório para a pasta nativa do Linux (`~/g-tercoa_eventos`), configurará as credenciais de e-mail e senha informadas, criará as tabelas do banco de dados SQLite e ativará o servidor Nginx.
+   *(Caso sua branch principal seja `master` em vez de `main`, substitua o nome correspondente na URL. Se o clone do GitHub falhar por falta de permissão, o script irá te pedir para digitar o caminho da pasta local no Windows para copiar).*
 
 ---
 

@@ -42,14 +42,63 @@ else
     echo -e "${GREEN}PM2 já instalado: $(pm2 -v)${NC}"
 fi
 
-# 4. Clonar o projeto do GitHub
-echo -e "${YELLOW}[2/7] Clonando repositório do projeto do GitHub...${NC}"
-if [ -d "$TARGET_DIR" ]; then
-    echo -e "${YELLOW}O diretório $TARGET_DIR já existe. Fazendo backup e atualizando...${NC}"
-    mv "$TARGET_DIR" "${TARGET_DIR}_backup_$(date +%s)"
-fi
-git clone "$REPO_URL" "$TARGET_DIR"
+# 4. Obter os arquivos do projeto
+echo -e "${YELLOW}[2/7] Obtendo arquivos do projeto...${NC}"
 
+# Detectar de onde o script está rodando
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Verificar se estamos rodando de dentro do próprio projeto
+if [ -f "$SCRIPT_DIR/backend/package.json" ] && [ -f "$SCRIPT_DIR/frontend/package.json" ]; then
+    echo -e "${GREEN}Detectado que o script está sendo executado de dentro da pasta do projeto.${NC}"
+    
+    # Se o diretório atual já for o de destino nativo (~/g-tercoa_eventos)
+    if [ "$SCRIPT_DIR" = "$TARGET_DIR" ]; then
+        echo -e "${GREEN}O projeto já está na pasta nativa de destino: $TARGET_DIR${NC}"
+    else
+        # Caso contrário, copia os arquivos locais da pasta atual para a pasta nativa
+        echo -e "${YELLOW}Copiando arquivos locais de $SCRIPT_DIR para $TARGET_DIR...${NC}"
+        if [ -d "$TARGET_DIR" ]; then
+            echo -e "${YELLOW}O diretório $TARGET_DIR já existe. Fazendo backup...${NC}"
+            mv "$TARGET_DIR" "${TARGET_DIR}_backup_\$(date +%s)"
+        fi
+        mkdir -p "$TARGET_DIR"
+        cp -r "$SCRIPT_DIR"/* "$TARGET_DIR/"
+        # Limpar node_modules copiados
+        rm -rf "$TARGET_DIR/backend/node_modules"
+        rm -rf "$TARGET_DIR/frontend/node_modules"
+    fi
+else
+    # Se não estiver no projeto, tenta clonar do GitHub
+    echo -e "${YELLOW}Script não executado dentro da pasta do projeto. Tentando clonar do GitHub...${NC}"
+    if [ -d "$TARGET_DIR" ]; then
+        echo -e "${YELLOW}O diretório $TARGET_DIR já existe. Fazendo backup...${NC}"
+        mv "$TARGET_DIR" "${TARGET_DIR}_backup_\$(date +%s)"
+    fi
+    
+    # Tenta clonar do GitHub. Se falhar, avisa o usuário e oferece instruções de cópia local.
+    if ! git clone "$REPO_URL" "$TARGET_DIR"; then
+        echo -e "${RED}Erro: Não foi possível clonar o repositório do GitHub.${NC}"
+        echo -e "${YELLOW}Isso pode ocorrer se o repositório for privado ou requerer autenticação.${NC}"
+        echo -e ""
+        echo -e "Você pode copiar os arquivos manualmente a partir do Windows executando:"
+        echo -e "  mkdir -p $TARGET_DIR"
+        echo -e "  cp -r /mnt/d/g-tercoa_eventos/* $TARGET_DIR/"
+        echo -e ""
+        echo -e "Por favor, digite o caminho completo da pasta do projeto no Windows (ex: /mnt/d/g-tercoa_eventos):"
+        read -r LOCAL_PATH
+        if [ -d "$LOCAL_PATH" ] && [ -f "$LOCAL_PATH/backend/package.json" ]; then
+            echo -e "${GREEN}Pasta encontrada! Copiando arquivos...${NC}"
+            mkdir -p "$TARGET_DIR"
+            cp -r "$LOCAL_PATH"/* "$TARGET_DIR/"
+            rm -rf "$TARGET_DIR/backend/node_modules"
+            rm -rf "$TARGET_DIR/frontend/node_modules"
+        else
+            echo -e "${RED}Caminho inválido. Abortando instalação.${NC}"
+            exit 1
+        fi
+    fi
+fi
 # 5. Configurar o Backend e Inicializar o Banco de Dados
 echo -e "${YELLOW}[3/7] Configurando o Backend e dependências...${NC}"
 cd "$TARGET_DIR/backend" || exit
