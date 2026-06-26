@@ -12,6 +12,18 @@ const QRCode = require('qrcode');
 const { runQuery, getQuery, allQuery } = require('./db');
 const { sendReceiptEmail } = require('./email');
 
+// Timezone-safe local date parsing helper
+function parseLocalDate(dateStr) {
+  if (!dateStr) return null;
+  const cleanStr = typeof dateStr === 'string' ? dateStr.split('T')[0] : dateStr.toISOString().split('T')[0];
+  const parts = cleanStr.split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10), 12, 0, 0);
+  }
+  return new Date(dateStr);
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'g_tercoa_secret_key_12345';
@@ -176,7 +188,16 @@ app.get('/api/users/evaluators', authenticateToken, requireRole(['admin']), asyn
     res.status(500).json({ error: 'Erro ao buscar avaliadores' });
   }
 });
-
+// Lista de Todos os Usuários Cadastrados no Sistema (Admin)
+app.get('/api/users', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const users = await allQuery('SELECT id, name, email, cpf, role FROM users ORDER BY name ASC');
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao carregar usuários' });
+  }
+});
 
 // ==========================================
 // 2. EVENTOS (EVENT BUILDER)
@@ -206,7 +227,10 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
     submissions_enabled,
     cert_text_organization,
     cert_text_presentation,
-    cert_text_guest
+    cert_text_guest,
+    registration_start_date,
+    registration_end_date,
+    supporters
   } = req.body;
 
   if (!name || !slug || !type || !start_date || !end_date) {
@@ -217,6 +241,7 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
   const axesJSON = JSON.stringify(thematic_axes || []);
   const categoriesJSON = JSON.stringify(registration_categories || []);
+  const supportersJSON = JSON.stringify(supporters || []);
 
   try {
     const eventId = crypto.randomUUID();
@@ -225,8 +250,9 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
         id, slug, name, type, description, banner_url, start_date, end_date, 
         thematic_axes, registration_categories, submission_rules, workload_hours, transmission_link,
         cert_border_color, cert_signature_name, cert_signature_role, cert_text_template,
-        location, guests, submissions_enabled, cert_text_organization, cert_text_presentation, cert_text_guest, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        location, guests, submissions_enabled, cert_text_organization, cert_text_presentation, cert_text_guest,
+        registration_start_date, registration_end_date, supporters, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       eventId,
       formattedSlug,
@@ -251,6 +277,9 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
       cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.',
       cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.',
       cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.',
+      registration_start_date || null,
+      registration_end_date || null,
+      supportersJSON,
       new Date().toISOString()
     ]);
 
@@ -272,7 +301,8 @@ app.get('/api/events', async (req, res) => {
     const parsedEvents = events.map(e => ({
       ...e,
       thematic_axes: JSON.parse(e.thematic_axes || '[]'),
-      registration_categories: JSON.parse(e.registration_categories || '[]')
+      registration_categories: JSON.parse(e.registration_categories || '[]'),
+      supporters: JSON.parse(e.supporters || '[]')
     }));
     res.json(parsedEvents);
   } catch (err) {
@@ -290,6 +320,18 @@ app.get('/api/events/by-slug/:slug', async (req, res) => {
     }
     event.thematic_axes = JSON.parse(event.thematic_axes || '[]');
     event.registration_categories = JSON.parse(event.registration_categories || '[]');
+    event.supporters = JSON.parse(event.supporters || '[]');
+    event.guests = JSON.parse(event.guests || '[]');
+
+    // Fetch organizers (coordinators) from assignments table
+    const coordinators = await allQuery(`
+      SELECT u.id, u.name, u.email
+      FROM event_assignments ea
+      JOIN users u ON ea.user_id = u.id
+      WHERE ea.event_id = ? AND ea.role = 'coordinator'
+    `, [event.id]);
+    event.organizers = coordinators;
+
     res.json(event);
   } catch (err) {
     console.error(err);
@@ -321,12 +363,16 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
     submissions_enabled,
     cert_text_organization,
     cert_text_presentation,
-    cert_text_guest
+    cert_text_guest,
+    registration_start_date,
+    registration_end_date,
+    supporters
   } = req.body;
 
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
   const axesJSON = JSON.stringify(thematic_axes || []);
   const categoriesJSON = JSON.stringify(registration_categories || []);
+  const supportersJSON = JSON.stringify(supporters || []);
 
   try {
     await runQuery(`
@@ -334,7 +380,8 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
       SET name = ?, slug = ?, type = ?, description = ?, banner_url = ?, start_date = ?, end_date = ?, 
           thematic_axes = ?, registration_categories = ?, submission_rules = ?, workload_hours = ?, transmission_link = ?,
           cert_border_color = ?, cert_signature_name = ?, cert_signature_role = ?, cert_text_template = ?,
-          location = ?, guests = ?, submissions_enabled = ?, cert_text_organization = ?, cert_text_presentation = ?, cert_text_guest = ?
+          location = ?, guests = ?, submissions_enabled = ?, cert_text_organization = ?, cert_text_presentation = ?, cert_text_guest = ?,
+          registration_start_date = ?, registration_end_date = ?, supporters = ?
       WHERE id = ?
     `, [
       name,
@@ -359,6 +406,9 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
       cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.',
       cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.',
       cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.',
+      registration_start_date || null,
+      registration_end_date || null,
+      supportersJSON,
       req.params.id
     ]);
 
@@ -366,6 +416,32 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao atualizar evento' });
+  }
+});
+
+app.delete('/api/events/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const eventId = req.params.id;
+  const { reason } = req.body;
+  try {
+    console.log(`Excluindo evento ID ${eventId}. Motivo informado: ${reason || 'Não informado'}`);
+    const event = await getQuery('SELECT id, name FROM events WHERE id = ?', [eventId]);
+    if (!event) {
+      return res.status(404).json({ error: 'Evento não encontrado' });
+    }
+
+    // Remove related data first (FK order)
+    await runQuery('DELETE FROM certificates WHERE event_id = ?', [eventId]);
+    await runQuery('DELETE FROM registrations WHERE event_id = ?', [eventId]);
+    await runQuery('DELETE FROM submissions WHERE event_id = ?', [eventId]);
+    await runQuery('DELETE FROM event_assignments WHERE event_id = ?', [eventId]);
+    await runQuery('DELETE FROM activity_presences WHERE event_id = ?', [eventId]);
+    await runQuery('DELETE FROM activities WHERE event_id = ?', [eventId]);
+    await runQuery('DELETE FROM events WHERE id = ?', [eventId]);
+
+    res.json({ message: `Evento "${event.name}" excluído com sucesso.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao excluir evento' });
   }
 });
 
@@ -385,6 +461,26 @@ app.post('/api/events/:id/register', authenticateToken, async (req, res) => {
   }
 
   try {
+    const event = await getQuery('SELECT registration_start_date, registration_end_date FROM events WHERE id = ?', [eventId]);
+    if (!event) {
+      return res.status(404).json({ error: 'Evento não encontrado' });
+    }
+
+    if (event.registration_start_date || event.registration_end_date) {
+      const offset = new Date().getTimezoneOffset();
+      const localDate = new Date(new Date().getTime() - (offset * 60 * 1000));
+      const today = localDate.toISOString().split('T')[0];
+
+      if (event.registration_start_date && today < event.registration_start_date) {
+        const startFormatted = event.registration_start_date.split('-').reverse().join('/');
+        return res.status(400).json({ error: `As inscrições para este evento ainda não começaram. Elas estarão disponíveis a partir de ${startFormatted}.` });
+      }
+
+      if (event.registration_end_date && today > event.registration_end_date) {
+        return res.status(400).json({ error: 'O período de inscrições para este evento já se encerrou.' });
+      }
+    }
+
     const regId = crypto.randomUUID();
     await runQuery(`
       INSERT INTO registrations (id, event_id, user_id, category, checked_in, checked_in_at, created_at)
@@ -451,8 +547,8 @@ app.post('/api/events/:id/register', authenticateToken, async (req, res) => {
           drawInfoLine('CPF:', fullReg.user_cpf, 55, 222, 485);
           drawInfoLine('E-mail:', fullReg.user_email, 55, 239, 485);
 
-          const startObj = new Date(fullReg.event_start);
-          const endObj = new Date(fullReg.event_end);
+          const startObj = parseLocalDate(fullReg.event_start);
+          const endObj = parseLocalDate(fullReg.event_end);
           const formatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
           const dateRange = startObj.getTime() === endObj.getTime()
             ? startObj.toLocaleDateString('pt-BR', formatOptions)
@@ -691,8 +787,8 @@ app.get('/api/registrations/:id/pdf', authenticateToken, async (req, res) => {
     drawInfoLine('E-mail:', reg.user_email, 55, 239, 485);
 
     // 4. Card: Dados do Evento
-    const startObj = new Date(reg.event_start);
-    const endObj = new Date(reg.event_end);
+    const startObj = parseLocalDate(reg.event_start);
+    const endObj = parseLocalDate(reg.event_end);
     const formatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
     const dateRange = startObj.getTime() === endObj.getTime()
       ? startObj.toLocaleDateString('pt-BR', formatOptions)
@@ -1302,8 +1398,8 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
        .text('CERTIFICADO', 0, 150, { align: 'center' });
 
     // Body Text
-    const startObj = new Date(cert.start_date);
-    const endObj = new Date(cert.end_date);
+    const startObj = parseLocalDate(cert.start_date);
+    const endObj = parseLocalDate(cert.end_date);
     const formatOptions = { day: '2-digit', month: 'long', year: 'numeric' };
     const dateRange = startObj.getTime() === endObj.getTime()
       ? `no dia ${startObj.toLocaleDateString('pt-BR', formatOptions)}`
@@ -1429,7 +1525,7 @@ app.get('/api/events/:id/activities', async (req, res) => {
 
 // Cadastrar Atividade (Admin)
 app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { title, type, start_time, end_time, location, description, guests } = req.body;
+  const { title, type, start_time, end_time, location, description, guests, transmission_link } = req.body;
 
   if (!title || !type || !start_time || !end_time) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
@@ -1438,8 +1534,8 @@ app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin'])
   try {
     const actId = crypto.randomUUID();
     await runQuery(`
-      INSERT INTO activities (id, event_id, title, type, start_time, end_time, location, description, guests, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO activities (id, event_id, title, type, start_time, end_time, location, description, guests, transmission_link, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       actId,
       req.params.id,
@@ -1450,6 +1546,7 @@ app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin'])
       location || '',
       description || '',
       JSON.stringify(guests || []),
+      transmission_link || '',
       new Date().toISOString()
     ]);
 
@@ -1462,7 +1559,7 @@ app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin'])
 
 // Editar Atividade (Admin)
 app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { title, type, start_time, end_time, location, description, guests } = req.body;
+  const { title, type, start_time, end_time, location, description, guests, transmission_link } = req.body;
 
   if (!title || !type || !start_time || !end_time) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
@@ -1471,7 +1568,7 @@ app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async 
   try {
     await runQuery(`
       UPDATE activities 
-      SET title = ?, type = ?, start_time = ?, end_time = ?, location = ?, description = ?, guests = ?
+      SET title = ?, type = ?, start_time = ?, end_time = ?, location = ?, description = ?, guests = ?, transmission_link = ?
       WHERE id = ?
     `, [
       title,
@@ -1481,6 +1578,7 @@ app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async 
       location || '',
       description || '',
       JSON.stringify(guests || []),
+      transmission_link || '',
       req.params.id
     ]);
 

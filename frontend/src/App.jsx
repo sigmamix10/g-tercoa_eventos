@@ -21,10 +21,36 @@ import {
   Upload, 
   Send,
   Lock,
-  ExternalLink
+  ExternalLink,
+  MapPin,
+  Trash2
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000';
+
+const getImageUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  return `${API_URL}${url}`;
+};
+
+const getLocalDate = (dStr) => {
+  if (!dStr) return null;
+  const cleanStr = typeof dStr === 'string' ? dStr.split('T')[0] : dStr.toISOString().split('T')[0];
+  const parts = cleanStr.split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10), 12, 0, 0);
+  }
+  return new Date(dStr);
+};
+
+const formatLocalDate = (dStr) => {
+  const date = getLocalDate(dStr);
+  return date ? date.toLocaleDateString('pt-BR') : '';
+};
 
 export default function App() {
   const navigate = useNavigate();
@@ -32,6 +58,7 @@ export default function App() {
   // Authentication State
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [loadingUser, setLoadingUser] = useState(!!localStorage.getItem('token'));
   
   // Dashboard Sub-views: 'admin-events' | 'admin-checkin' | 'admin-submissions' | 'admin-metrics' | 'evaluator-reviews' | 'participant-events' | 'participant-submissions' | 'participant-certificates'
   const [dashboardSubView, setDashboardSubView] = useState('participant-events');
@@ -48,21 +75,57 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Fetch logged in user profile on load
-  useEffect(() => {
-    if (token) {
-      localStorage.setItem('token', token);
-      fetchUserProfile();
-    } else {
-      localStorage.removeItem('token');
-      setUser(null);
-    }
-  }, [token]);
+  // Accessibility States
+  const [fontSizeScale, setFontSizeScale] = useState(
+    parseInt(localStorage.getItem('fontSizeScale')) || 100
+  );
+  const [contrastMode, setContrastMode] = useState(
+    localStorage.getItem('contrastMode') === 'true'
+  );
 
-  const fetchUserProfile = async () => {
+  // Apply font size scale
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${fontSizeScale}%`;
+    localStorage.setItem('fontSizeScale', fontSizeScale);
+  }, [fontSizeScale]);
+
+  // Apply contrast mode
+  useEffect(() => {
+    if (contrastMode) {
+      document.body.classList.add('contrast-mode');
+    } else {
+      document.body.classList.remove('contrast-mode');
+    }
+    localStorage.setItem('contrastMode', contrastMode);
+  }, [contrastMode]);
+
+  const adjustFontSize = (delta) => {
+    setFontSizeScale(prev => {
+      const next = prev + delta;
+      return Math.min(Math.max(next, 76), 200); // limit between 76% and 200%
+    });
+  };
+
+  const resetFontSize = () => {
+    setFontSizeScale(100);
+  };
+
+  const toggleContrast = () => {
+    setContrastMode(prev => !prev);
+  };
+
+
+
+  const fetchUserProfile = async (authToken) => {
+    const activeToken = authToken || token;
+    if (!activeToken) {
+      setLoadingUser(false);
+      return;
+    }
     try {
+      setLoadingUser(true);
       const res = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${activeToken}` }
       });
       if (res.ok) {
         const data = await res.json();
@@ -73,12 +136,39 @@ export default function App() {
         else setDashboardSubView('participant-events');
       } else {
         setToken('');
+        localStorage.removeItem('token');
       }
     } catch (err) {
       console.error(err);
       setToken('');
+      localStorage.removeItem('token');
+    } finally {
+      setLoadingUser(false);
     }
   };
+
+  const handleLoginSuccess = (authToken, loggedInUser) => {
+    setToken(authToken);
+    setUser(loggedInUser);
+    localStorage.setItem('token', authToken);
+    setLoadingUser(false);
+    if (loggedInUser.role === 'admin') setDashboardSubView('admin-metrics');
+    else if (loggedInUser.role === 'evaluator') setDashboardSubView('evaluator-reviews');
+    else setDashboardSubView('participant-events');
+  };
+
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem('token', token);
+      if (!user) {
+        fetchUserProfile(token);
+      }
+    } else {
+      localStorage.removeItem('token');
+      setUser(null);
+      setLoadingUser(false);
+    }
+  }, [token]);
 
   const handleLogout = () => {
     setToken('');
@@ -89,6 +179,36 @@ export default function App() {
 
   return (
     <div>
+      {/* Accessibility Top Bar */}
+      <div className="accessibility-bar">
+        <div className="accessibility-container">
+          <div className="accessibility-links">
+            <a href="#main-content" className="access-link" onClick={(e) => {
+              e.preventDefault();
+              const content = document.getElementById('main-content');
+              if (content) {
+                content.tabIndex = -1;
+                content.focus();
+              }
+            }}>Ir para o conteúdo [1]</a>
+          </div>
+          <div className="accessibility-controls">
+            <button className="access-btn" onClick={toggleContrast} title="Alternar Alto Contraste">
+              🌓 Alto Contraste
+            </button>
+            <button className="access-btn" onClick={() => adjustFontSize(8)} title="Aumentar Fonte">
+              A+
+            </button>
+            <button className="access-btn" onClick={() => adjustFontSize(-8)} title="Diminuir Fonte">
+              A-
+            </button>
+            <button className="access-btn" onClick={resetFontSize} title="Resetar Fonte">
+              A Padrão
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Toast Notification */}
       {toast && (
         <div style={{
@@ -141,7 +261,7 @@ export default function App() {
       </nav>
 
       {/* MAIN VIEW ROUTER */}
-      <main style={{ minHeight: 'calc(100vh - 70px)' }}>
+      <main id="main-content" style={{ minHeight: 'calc(100vh - 70px)', outline: 'none' }}>
         <Routes>
           <Route path="/" element={<HomeView showToast={showToast} token={token} />} />
           <Route 
@@ -159,7 +279,12 @@ export default function App() {
           <Route 
             path="/dashboard" 
             element={
-              user ? (
+              loadingUser ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '15px' }}>
+                  <div className="spinner"></div>
+                  <p style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Carregando painel...</p>
+                </div>
+              ) : user ? (
                 <DashboardRouter 
                   user={user} 
                   token={token} 
@@ -185,7 +310,7 @@ export default function App() {
       {showLoginModal && (
         <LoginModal 
           onClose={() => setShowLoginModal(false)} 
-          setToken={setToken} 
+          onLoginSuccess={handleLoginSuccess} 
           showToast={showToast} 
         />
       )}
@@ -209,6 +334,8 @@ function HomeView({ showToast }) {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
 
   useEffect(() => {
     fetchEvents();
@@ -241,18 +368,17 @@ function HomeView({ showToast }) {
     return formats[type] || 'Evento';
   };
 
+  const filteredEvents = events.filter(event => {
+    const matchesSearch = event.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (event.description && event.description.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesFilter = activeFilter === 'all' || event.type === activeFilter;
+    return matchesSearch && matchesFilter;
+  });
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
       {/* Institutional Hero Banner */}
-      <div className="glass-card" style={{
-        background: 'linear-gradient(135deg, var(--primary) 0%, #1e40af 100%)',
-        color: '#fff',
-        padding: '50px 40px',
-        marginBottom: '40px',
-        textAlign: 'center',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
+      <div className="hero-banner">
         {/* Abstract shapes */}
         <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }}></div>
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '15px' }}>Plataforma de Eventos Acadêmicos G-TERCOA</h1>
@@ -272,43 +398,98 @@ function HomeView({ showToast }) {
           <p style={{ color: 'var(--text-muted)' }}>A comissão organizadora do G-TERCOA disponibilizará novos eventos em breve.</p>
         </div>
       ) : (
-        <div className="grid-cards">
-          {events.map(event => (
-            <div key={event.id} className="glass-card" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-              <div style={{
-                height: '140px',
-                backgroundImage: `url(${event.banner_url || 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?q=80&w=600&auto=format&fit=crop'})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                position: 'relative'
-              }}>
-                <div style={{ position: 'absolute', top: '12px', left: '12px', zIndex: 10 }}>
-                  <span className="badge badge-primary" style={{ background: '#fff', border: '1px solid var(--border)' }}>
-                    {getFormatName(event.type)}
-                  </span>
-                </div>
-              </div>
-              <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '10px', color: 'var(--primary)' }}>{event.name}</h3>
-                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', flex: 1, marginBottom: '18px' }}>
-                  {event.description ? event.description.substring(0, 140) + '...' : 'Sem descrição disponível.'}
-                </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
-                  <Calendar size={14} style={{ color: 'var(--accent-light)' }} />
-                  <span>
-                    {new Date(event.start_date).toLocaleDateString('pt-BR')} a {new Date(event.end_date).toLocaleDateString('pt-BR')}
-                  </span>
-                </div>
-                <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
-                  navigate(`/evento/${event.slug}`);
-                }}>
-                  Acessar Evento
-                  <ChevronRight size={16} />
-                </button>
-              </div>
+        <>
+          {/* Search and filter controls */}
+          <div className="glass-card search-filter-card">
+            <div className="search-wrapper">
+              <Search className="search-icon" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar por nome ou descrição do evento..."
+                className="search-input"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-          ))}
-        </div>
+            <div className="filter-group">
+              <button
+                className={`filter-tab-btn ${activeFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('all')}
+              >
+                Todos
+              </button>
+              <button
+                className={`filter-tab-btn ${activeFilter === 'school_of_summer' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('school_of_summer')}
+              >
+                Escola de Verão
+              </button>
+              <button
+                className={`filter-tab-btn ${activeFilter === 'dima' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('dima')}
+              >
+                DIMA
+              </button>
+              <button
+                className={`filter-tab-btn ${activeFilter === 'live_cycle' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('live_cycle')}
+              >
+                Ciclo de Lives
+              </button>
+              <button
+                className={`filter-tab-btn ${activeFilter === 'workshop' ? 'active' : ''}`}
+                onClick={() => setActiveFilter('workshop')}
+              >
+                Workshop
+              </button>
+            </div>
+          </div>
+
+          {filteredEvents.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', width: '100%' }}>
+              <Info size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+              <p style={{ color: 'var(--text-secondary)' }}>Nenhum evento encontrado para a busca ou filtro selecionado.</p>
+            </div>
+          ) : (
+            <div className="grid-cards">
+              {filteredEvents.map(event => (
+                <div key={event.id} className="glass-card" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '140px',
+                    backgroundImage: `url(${getImageUrl(event.banner_url) || 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?q=80&w=600&auto=format&fit=crop'})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    position: 'relative'
+                  }}>
+                    <div style={{ position: 'absolute', top: '12px', left: '12px', zIndex: 10 }}>
+                      <span className="badge badge-primary" style={{ background: '#fff', border: '1px solid var(--border)' }}>
+                        {getFormatName(event.type)}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '10px', color: 'var(--primary)' }}>{event.name}</h3>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', flex: 1, marginBottom: '18px' }}>
+                      {event.description ? event.description.substring(0, 140) + '...' : 'Sem descrição disponível.'}
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                      <Calendar size={14} style={{ color: 'var(--accent-light)' }} />
+                      <span>
+                        {formatLocalDate(event.start_date)} a {formatLocalDate(event.end_date)}
+                      </span>
+                    </div>
+                    <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
+                      navigate(`/evento/${event.slug}`);
+                    }}>
+                      Acessar Evento
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -384,6 +565,32 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
       setLoadingActivities(false);
     }
   };
+
+  const getRegistrationStatus = () => {
+    if (!event) return { isOpen: false, status: 'closed' };
+    
+    const start = event.registration_start_date || null;
+    const end = event.registration_end_date || null;
+    
+    if (!start && !end) {
+      return { isOpen: true, status: 'open' };
+    }
+    
+    const offset = new Date().getTimezoneOffset();
+    const localDate = new Date(new Date().getTime() - (offset * 60 * 1000));
+    const today = localDate.toISOString().split('T')[0];
+    
+    if (start && today < start) {
+      return { isOpen: false, status: 'before', date: start };
+    }
+    if (end && today > end) {
+      return { isOpen: false, status: 'after', date: end };
+    }
+    
+    return { isOpen: true, status: 'open', start, end };
+  };
+
+  const regStatus = getRegistrationStatus();
 
   const checkUserRegistration = async () => {
     if (!user || !token) {
@@ -526,287 +733,411 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
     return <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-secondary)' }}>Evento não encontrado.</div>;
   }
 
+  // Helper: format date to pt-BR
+  const fmtDate = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
+
+  // Group activities by date
+  const activitiesByDay = activities.reduce((acc, act) => {
+    const day = new Date(act.start_time).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+    if (!acc[day]) acc[day] = [];
+    acc[day].push(act);
+    return acc;
+  }, {});
+
+  const guests = event.guests || [];
+  const supporters = event.supporters || [];
+  const organizers = event.organizers || [];
+
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
-      {/* Event Header Banner */}
-      <div className="event-banner" style={{
-        backgroundImage: `url(${event.banner_url || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?q=80&w=1200&auto=format&fit=crop'})`
+    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 0 80px' }}>
+
+      {/* ── HERO BANNER ── */}
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        height: '440px',
+        overflow: 'hidden',
+        borderRadius: '0 0 var(--radius) var(--radius)',
+        background: '#0f172a'
       }}>
-        <div className="event-banner-content">
-          <h1 style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: '8px' }}>{event.name}</h1>
-          <p style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#cbd5e1' }}>
-            <Calendar size={16} />
-            <span>
-              {new Date(event.start_date).toLocaleDateString('pt-BR')} a {new Date(event.end_date).toLocaleDateString('pt-BR')}
+        {event.banner_url ? (
+          <img
+            src={getImageUrl(event.banner_url)}
+            alt={event.name}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
+          />
+        ) : (
+          <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 60%, #7c3aed 100%)' }} />
+        )}
+        {/* Gradient overlay */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%)'
+        }} />
+        {/* Text overlay */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '32px 40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--accent)', color: '#fff', fontSize: '0.72rem', fontWeight: 700, padding: '4px 12px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '12px' }}>
+            {event.type === 'school_of_summer' ? 'Escola de Verão' : event.type === 'dima' ? 'DIMA' : event.type === 'live_cycle' ? 'Ciclo de Lives' : 'Workshop'}
+          </div>
+          <h1 style={{ fontSize: 'clamp(1.6rem, 4vw, 2.4rem)', fontWeight: 900, color: '#fff', lineHeight: 1.2, marginBottom: '14px', textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>{event.name}</h1>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', color: 'rgba(255,255,255,0.88)', fontSize: '0.92rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Calendar size={15} />
+              {fmtDate(event.start_date)} – {fmtDate(event.end_date)}
             </span>
-            <span style={{ margin: '0 8px' }}>|</span>
-            <Clock size={16} />
-            <span>Carga Horária: {event.workload_hours}h</span>
-          </p>
+            {event.location && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <MapPin size={15} />
+                {event.location}
+              </span>
+            )}
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Clock size={15} />
+              {event.workload_hours}h de carga horária
+            </span>
+          </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '30px', marginTop: '30px' }}>
-        {/* Left Column: Description & Submissions */}
-        <div>
-          <div className="glass-card" style={{ marginBottom: '30px' }}>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Sobre o Evento</h2>
-            <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>
-              {event.description || 'Nenhuma descrição fornecida para este evento.'}
-            </div>
-            {event.thematic_axes && event.thematic_axes.length > 0 && (
-              <div style={{ marginTop: '24px' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px' }}>Eixos Temáticos:</h3>
-                <ul style={{ paddingLeft: '20px', color: 'var(--text-secondary)' }}>
-                  {event.thematic_axes.map((axis, i) => (
-                    <li key={i} style={{ marginBottom: '6px' }}>{axis}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+      {/* ── CONTENT BODY ── */}
+      <div style={{ padding: '0 20px', marginTop: '36px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-          {/* Programação Section */}
-          <div className="glass-card" style={{ marginBottom: '30px' }}>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Programação do Evento</h2>
+        {/* ── INSCRIÇÃO ── */}
+        <section>
+          {isRegistered ? (
+            <div className="glass-card" style={{ border: '2px solid var(--success)', background: 'rgba(5, 150, 105, 0.03)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                <CheckCircle size={28} style={{ color: 'var(--success)' }} />
+                <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--success)', margin: 0 }}>Inscrição Confirmada!</h2>
+              </div>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '20px' }}>
+                Você já está inscrito neste evento. Acesse seu painel para ver credencial e acompanhar transmissões.
+              </p>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
+                  Acessar Painel do Participante
+                </button>
+                {registrationId && (
+                  <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => handleDownloadReceiptPDF(registrationId)}>
+                    <FileText size={15} /> Comprovante (PDF)
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : !regStatus.isOpen ? (
+            <div className="glass-card" style={{ display: 'flex', gap: '18px', alignItems: 'flex-start' }}>
+              <div style={{ background: 'rgba(214,158,46,0.12)', borderRadius: '50%', width: '52px', height: '52px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Lock size={24} style={{ color: 'var(--accent)' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>Inscrições {regStatus.status === 'before' ? 'ainda não abertas' : 'encerradas'}</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
+                  {regStatus.status === 'before'
+                    ? `As inscrições serão abertas em ${regStatus.date.split('-').reverse().join('/')}.`
+                    : `O prazo de inscrições encerrou em ${regStatus.date.split('-').reverse().join('/')}.`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="glass-card">
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '18px' }}>Inscrições Abertas</h2>
+              {(event.registration_start_date || event.registration_end_date) && (
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px', background: 'rgba(214, 158, 46, 0.07)', border: '1px solid rgba(214, 158, 46, 0.18)', padding: '10px 14px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Calendar size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                  <span>Período de inscrições: <strong>{event.registration_start_date ? event.registration_start_date.split('-').reverse().join('/') : 'Imediato'}</strong> até <strong>{event.registration_end_date ? event.registration_end_date.split('-').reverse().join('/') : 'encerramento'}</strong></span>
+                </div>
+              )}
+              <form onSubmit={handleRegistration} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div className="form-group" style={{ flex: '1', minWidth: '200px', margin: 0 }}>
+                  <label className="form-label">Selecione sua Categoria</label>
+                  <select className="form-select" required value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
+                    <option value="">Selecione...</option>
+                    {event.registration_categories && event.registration_categories.map((cat, i) => (
+                      <option key={i} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="btn btn-accent" style={{ padding: '12px 28px', fontWeight: 700, whiteSpace: 'nowrap' }} disabled={submittingReg}>
+                  {submittingReg ? 'Aguarde...' : 'Garantir Minha Vaga →'}
+                </button>
+              </form>
+            </div>
+          )}
+        </section>
+
+        {/* ── SOBRE O EVENTO ── */}
+        {event.description && (
+          <section>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: 'var(--primary-light)', borderRadius: '2px' }} />
+              Sobre o Evento
+            </h2>
+            <div className="glass-card">
+              <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)', lineHeight: 1.8, fontSize: '0.97rem' }}>
+                {event.description}
+              </div>
+              {event.thematic_axes && event.thematic_axes.length > 0 && (
+                <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Eixos Temáticos</h3>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {event.thematic_axes.map((axis, i) => (
+                      <span key={i} style={{ background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.14)', color: 'var(--primary)', padding: '5px 14px', borderRadius: '20px', fontSize: '0.83rem', fontWeight: 600 }}>{axis}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* ── PROGRAMAÇÃO ── */}
+        <section>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ display: 'inline-block', width: '4px', height: '22px', background: 'var(--accent)', borderRadius: '2px' }} />
+            Programação
+          </h2>
+          <div className="glass-card">
             {loadingActivities ? (
               <div style={{ color: 'var(--text-muted)' }}>Carregando programação...</div>
             ) : activities.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.95rem' }}>
-                Nenhuma atividade cadastrada na programação até o momento.
-              </div>
+              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>A programação completa será divulgada em breve.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {activities.map(act => (
-                  <div key={act.id} style={{ display: 'flex', gap: '15px', borderLeft: '3px solid var(--primary-light)', paddingLeft: '15px', paddingBottom: '5px' }}>
-                    <div style={{ minWidth: '120px' }}>
-                      <div style={{ fontWeight: 'bold', color: 'var(--primary)', fontSize: '0.95rem' }}>
-                        {new Date(act.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        às {new Date(act.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {new Date(act.start_time).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                      </div>
-                      <span className="badge badge-primary" style={{ fontSize: '0.65rem', marginTop: '6px', textTransform: 'uppercase' }}>
-                        {act.type.replace('_', ' ')}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{act.title}</h3>
-                      {act.description && <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{act.description}</p>}
-                      {act.location && (
-                        <div style={{ fontSize: '0.85rem', color: 'var(--primary-light)', marginTop: '6px' }}>
-                          <strong>Local/Link:</strong> {act.location}
-                        </div>
-                      )}
-                      
-                      {/* Guests list */}
-                      {act.guests && act.guests.length > 0 && (
-                        <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {act.guests.map((g, idx) => (
-                            <div key={idx} style={{
-                              background: g.role === 'palestrante' ? 'rgba(37, 99, 235, 0.05)' : 'rgba(180, 83, 9, 0.05)',
-                              border: `1px solid ${g.role === 'palestrante' ? 'rgba(37, 99, 235, 0.12)' : 'rgba(180, 83, 9, 0.12)'}`,
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              fontSize: '0.8rem'
-                            }}>
-                              <span style={{ fontWeight: 'bold', color: g.role === 'palestrante' ? 'var(--primary-light)' : 'var(--accent)' }}>
-                                {g.role === 'palestrante' ? 'Palestrante: ' : 'Mediador: '}
-                              </span>
-                              <span>{g.name}</span>
-                              {g.institution && <span style={{ color: 'var(--text-muted)' }}> ({g.institution})</span>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                {Object.entries(activitiesByDay).map(([day, acts]) => (
+                  <div key={day}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--primary-light)', marginBottom: '14px', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>{day}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                      {acts.map(act => (
+                        <div key={act.id} style={{ display: 'flex', gap: '18px' }}>
+                          <div style={{ minWidth: '90px', textAlign: 'right', paddingTop: '2px', flexShrink: 0 }}>
+                            <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.95rem' }}>{new Date(act.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>até {new Date(act.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+                          </div>
+                          <div style={{ flex: 1, paddingLeft: '18px', borderLeft: '2px solid var(--border)' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '4px' }}>
+                              <span style={{ background: 'var(--primary)', color: '#fff', fontSize: '0.62rem', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '2px' }}>{act.type.replace('_', ' ')}</span>
+                              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{act.title}</h3>
                             </div>
-                          ))}
+                            {act.description && <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '4px 0', whiteSpace: 'pre-wrap' }}>{act.description}</p>}
+                            {act.location && <div style={{ fontSize: '0.8rem', color: 'var(--primary-light)', marginTop: '4px' }}>📍 {act.location}</div>}
+                            {act.transmission_link && (
+                              <div style={{ marginTop: '6px', fontSize: '0.8rem' }}>
+                                <a href={act.transmission_link} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#8b5cf6', fontWeight: 600, textDecoration: 'underline' }}>
+                                  <Video size={14} />
+                                  Link de Transmissão / Vídeo
+                                </a>
+                              </div>
+                            )}
+                            {act.guests && act.guests.length > 0 && (
+                              <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {act.guests.map((g, idx) => (
+                                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface-secondary)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                    <span style={{ fontWeight: 700, color: g.role === 'palestrante' ? 'var(--primary-light)' : 'var(--accent)' }}>{g.role === 'palestrante' ? '🎤' : '🎯'}</span>
+                                    <span>{g.name}</span>
+                                    {g.institution && <span style={{ color: 'var(--text-muted)' }}>· {g.institution}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
+        </section>
 
-          {/* Submissions Section */}
-          {checkingReg ? (
-            <div>Verificando sua inscrição...</div>
-          ) : isRegistered ? (
+        {/* ── CONVIDADOS / PALESTRANTES ── */}
+        {guests.length > 0 && (
+          <section>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#8b5cf6', borderRadius: '2px' }} />
+              Convidados & Palestrantes
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
+              {guests.map((g, i) => (
+                <div key={i} className="glass-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '24px 18px', gap: '12px' }}>
+                  {g.image_url ? (
+                    <img src={getImageUrl(g.image_url)} alt={g.name} style={{ width: '72px', height: '72px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--primary-light)', boxShadow: '0 4px 12px rgba(37,99,235,0.18)' }} />
+                  ) : (
+                    <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.5rem', color: '#fff', boxShadow: '0 4px 12px rgba(37,99,235,0.18)' }}>{g.name.charAt(0)}</div>
+                  )}
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{g.name}</div>
+                    {g.institution && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>{g.institution}</div>}
+                    {g.role && <span style={{ display: 'inline-block', marginTop: '6px', background: g.role === 'palestrante' ? 'rgba(37,99,235,0.1)' : 'rgba(214,158,46,0.12)', color: g.role === 'palestrante' ? 'var(--primary-light)' : 'var(--accent)', fontSize: '0.7rem', fontWeight: 700, padding: '2px 10px', borderRadius: '12px', textTransform: 'capitalize' }}>{g.role}</span>}
+                    {g.mini_bio && (
+                      <p style={{ 
+                        fontSize: '0.78rem', 
+                        color: 'var(--text-secondary)', 
+                        margin: '10px 0 0 0', 
+                        lineHeight: '1.4',
+                        display: '-webkit-box', 
+                        WebkitLineClamp: 3, 
+                        WebkitBoxOrient: 'vertical', 
+                        overflow: 'hidden',
+                        textAlign: 'center'
+                      }} title={g.mini_bio}>
+                        {g.mini_bio}
+                      </p>
+                    )}
+                    {(g.orcid_link || g.lattes_link) && (
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '10px' }}>
+                        {g.orcid_link && (
+                          <a 
+                            href={g.orcid_link} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: 600, 
+                              color: '#a3e635', 
+                              background: 'rgba(163,230,53,0.1)', 
+                              padding: '2px 8px', 
+                              borderRadius: '6px',
+                              textDecoration: 'none' 
+                            }}
+                          >
+                            ORCID
+                          </a>
+                        )}
+                        {g.lattes_link && (
+                          <a 
+                            href={g.lattes_link} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: 600, 
+                              color: '#38bdf8', 
+                              background: 'rgba(56,189,248,0.1)', 
+                              padding: '2px 8px', 
+                              borderRadius: '6px',
+                              textDecoration: 'none' 
+                            }}
+                          >
+                            Lattes
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── ORGANIZAÇÃO ── */}
+        {organizers.length > 0 && (
+          <section>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#0ea5e9', borderRadius: '2px' }} />
+              Organização
+            </h2>
             <div className="glass-card">
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Submissão de Trabalhos</h2>
-              
-              {/* Fixed ABNT Alert Box */}
-              <div className="abnt-warning-box">
-                <h4>
-                  <Info size={18} />
-                  Atenção às Normas da ABNT
-                </h4>
-                <p>
-                  Todos os resumos expandidos e artigos completos submetidos devem obrigatoriamente estar formatados conforme as diretrizes da **ABNT** (referências conforme NBR 6023, citações conforme NBR 10520 e estrutura geral de artigo científico). Trabalhos fora das normas de formatação serão rejeitados pela comissão examinadora.
-                </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                {organizers.map((org, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--surface-secondary)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 18px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, #0ea5e9, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: '1rem', flexShrink: 0 }}>{org.name ? org.name.charAt(0) : '?'}</div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{org.name}</div>
+                      {org.role && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{org.role}</div>}
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
+          </section>
+        )}
 
+        {/* ── APOIADORES ── */}
+        {supporters.length > 0 && (
+          <section>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#10b981', borderRadius: '2px' }} />
+              Apoiadores & Parceiros
+            </h2>
+            <div className="glass-card">
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '28px' }}>
+                {supporters.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', opacity: 0.9, transition: 'opacity 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={e => e.currentTarget.style.opacity = 0.9}>
+                    {s.logo_url ? (
+                      <img src={getImageUrl(s.logo_url)} alt={s.name} style={{ height: '48px', maxWidth: '140px', objectFit: 'contain', filter: 'grayscale(20%)' }} />
+                    ) : (
+                      <div style={{ height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{s.name}</span>
+                      </div>
+                    )}
+                    {s.logo_url && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center' }}>{s.name}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── SUBMISSÃO DE TRABALHOS ── */}
+        {checkingReg ? null : isRegistered ? (
+          <section>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#f59e0b', borderRadius: '2px' }} />
+              Submissão de Trabalhos
+            </h2>
+            <div className="glass-card">
+              <div className="abnt-warning-box" style={{ marginBottom: '20px' }}>
+                <h4><Info size={18} /> Atenção às Normas da ABNT</h4>
+                <p>Todos os resumos e artigos devem estar formatados conforme as diretrizes da ABNT (NBR 6023, NBR 10520). Trabalhos fora das normas serão rejeitados pela comissão examinadora.</p>
+              </div>
               {event.submission_rules && (
-                <div style={{ background: 'var(--surface-secondary)', padding: '16px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.9rem' }}>
-                  <strong>Regras Adicionais do Evento:</strong>
-                  <p style={{ marginTop: '6px', whiteSpace: 'pre-wrap' }}>{event.submission_rules}</p>
+                <div style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.88rem', whiteSpace: 'pre-wrap' }}>
+                  <strong>Regras deste Evento:</strong><br />{event.submission_rules}
                 </div>
               )}
-
               <form onSubmit={handleWorkSubmission}>
                 <div className="form-group">
                   <label className="form-label">Título do Trabalho *</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="Título completo do artigo/resumo" 
-                    required 
-                    value={subTitle}
-                    onChange={(e) => setSubTitle(e.target.value)}
-                  />
+                  <input type="text" className="form-input" placeholder="Título completo" required value={subTitle} onChange={(e) => setSubTitle(e.target.value)} />
                 </div>
-                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label className="form-label">Coautores (opcional)</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="Ex: Maria Silva, João Souza" 
-                      value={subAuthors}
-                      onChange={(e) => setSubAuthors(e.target.value)}
-                    />
+                    <input type="text" className="form-input" placeholder="Maria Silva, João Souza" value={subAuthors} onChange={(e) => setSubAuthors(e.target.value)} />
                   </div>
                   <div>
                     <label className="form-label">Filiação Institucional *</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="Ex: UFC, UECE, IFCE" 
-                      required 
-                      value={subAffiliation}
-                      onChange={(e) => setSubAffiliation(e.target.value)}
-                    />
+                    <input type="text" className="form-input" placeholder="UFC, UECE, IFCE" required value={subAffiliation} onChange={(e) => setSubAffiliation(e.target.value)} />
                   </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Eixo Temático *</label>
-                  <select 
-                    className="form-select" 
-                    required
-                    value={subAxis}
-                    onChange={(e) => setSubAxis(e.target.value)}
-                  >
-                    <option value="">Selecione o eixo temático...</option>
-                    {event.thematic_axes.map((axis, i) => (
-                      <option key={i} value={axis}>{axis}</option>
-                    ))}
+                  <select className="form-select" required value={subAxis} onChange={(e) => setSubAxis(e.target.value)}>
+                    <option value="">Selecione o eixo...</option>
+                    {event.thematic_axes.map((axis, i) => <option key={i} value={axis}>{axis}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Arquivo de Trabalho (PDF/Word) *</label>
-                  <div style={{
-                    border: '2px dashed var(--border)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '24px',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    background: submissionFile ? 'rgba(5, 150, 105, 0.05)' : 'transparent',
-                    borderColor: submissionFile ? 'var(--success)' : 'var(--border)',
-                    transition: 'var(--transition-fast)'
-                  }} onClick={() => document.getElementById('file-upload-input').click()}>
-                    <Upload size={32} style={{ color: submissionFile ? 'var(--success)' : 'var(--text-muted)', marginBottom: '8px' }} />
-                    <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>
-                      {submissionFile ? `Arquivo selecionado: ${submissionFile.name}` : 'Arraste ou clique para selecionar arquivo PDF/Word'}
-                    </p>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Máximo 10MB</span>
-                    <input 
-                      type="file" 
-                      id="file-upload-input" 
-                      accept=".pdf,.doc,.docx"
-                      style={{ display: 'none' }} 
-                      onChange={(e) => setSubmissionFile(e.target.files[0])}
-                    />
+                  <label className="form-label">Arquivo (PDF/Word) *</label>
+                  <div style={{ border: '2px dashed var(--border)', borderRadius: '8px', padding: '28px', textAlign: 'center', cursor: 'pointer', background: submissionFile ? 'rgba(5,150,105,0.05)' : 'transparent', borderColor: submissionFile ? 'var(--success)' : 'var(--border)', transition: 'all 0.2s' }} onClick={() => document.getElementById('file-upload-input').click()}>
+                    <Upload size={28} style={{ color: submissionFile ? 'var(--success)' : 'var(--text-muted)', marginBottom: '8px' }} />
+                    <p style={{ fontSize: '0.9rem', fontWeight: 500, margin: '0 0 4px' }}>{submissionFile ? submissionFile.name : 'Clique para selecionar o arquivo'}</p>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PDF ou Word · Máximo 10MB</span>
+                    <input type="file" id="file-upload-input" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={(e) => setSubmissionFile(e.target.files[0])} />
                   </div>
                 </div>
-                <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={submittingWork}>
-                  {submittingWork ? 'Submetendo...' : 'Submeter Trabalho para Avaliação'}
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '13px' }} disabled={submittingWork}>
+                  {submittingWork ? 'Submetendo...' : 'Enviar Trabalho para Avaliação'}
                 </button>
               </form>
             </div>
-          ) : (
-            <div className="glass-card" style={{ textAlign: 'center', padding: '40px 20px', border: '1px solid var(--border)' }}>
-              <Lock size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-              <h3>Submissão de Trabalhos Restrita</h3>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginTop: '6px' }}>
-                Você precisa se inscrever neste evento primeiro para poder submeter trabalhos.
-              </p>
-            </div>
-          )}
-        </div>
+          </section>
+        ) : null}
 
-        {/* Right Column: Registrations and Details */}
-        <div>
-          {isRegistered ? (
-            <div className="glass-card" style={{ border: '2px solid var(--success)', background: 'rgba(5, 150, 105, 0.02)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--success)', marginBottom: '14px' }}>
-                <CheckCircle size={24} />
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Inscrição Confirmada</h3>
-              </div>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '18px' }}>
-                Sua inscrição para o evento está ativa! Acesse o painel de participantes para ver sua credencial e acessar a área virtual de transmissão.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => {
-                  navigate('/dashboard');
-                }}>
-                  Acessar Área do Participante
-                </button>
-                {registrationId && (
-                  <button className="btn btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} onClick={() => handleDownloadReceiptPDF(registrationId)}>
-                    <FileText size={16} />
-                    Comprovante de Inscrição (PDF)
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="glass-card">
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '16px' }}>Inscrição no Evento</h3>
-              <form onSubmit={handleRegistration}>
-                <div className="form-group">
-                  <label className="form-label">Selecione sua Categoria</label>
-                  <select 
-                    className="form-select" 
-                    required 
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                  >
-                    <option value="">Selecione...</option>
-                    {event.registration_categories && event.registration_categories.map((cat, i) => (
-                      <option key={i} value={cat.name}>
-                        {cat.name} {cat.price > 0 ? `- R$ ${cat.price.toFixed(2)}` : '(Gratuito)'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button type="submit" className="btn btn-accent" style={{ width: '100%' }} disabled={submittingReg}>
-                  {submittingReg ? 'Realizando inscrição...' : 'Garantir Minha Vaga'}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* Quick info details */}
-          <div className="glass-card" style={{ marginTop: '20px', fontSize: '0.9rem' }}>
-            <h4 style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Informações Acadêmicas</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'var(--text-secondary)' }}>
-              <div><strong>Formato:</strong> {event.type === 'live_cycle' ? 'Ciclo de Lives (Virtual)' : event.type === 'school_of_summer' ? 'Escola de Verão' : event.type === 'dima' ? 'DIMA (Presencial/Híbrido)' : 'Workshop'}</div>
-              <div><strong>Carga Horária:</strong> {event.workload_hours} horas</div>
-              <div><strong>Certificado:</strong> Incluso (mediante check-in presencial ou virtual)</div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -881,7 +1212,7 @@ function CertificateVerifyView({ showToast }) {
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>CPF:</td><td style={{ padding: '8px 0' }}>{certData.user_cpf}</td></tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Evento:</td><td style={{ padding: '8px 0', fontWeight: 600 }}>{certData.event_name}</td></tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Carga Horária:</td><td style={{ padding: '8px 0' }}>{certData.workload_hours} horas</td></tr>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Período:</td><td style={{ padding: '8px 0' }}>{new Date(certData.start_date).toLocaleDateString('pt-BR')} a {new Date(certData.end_date).toLocaleDateString('pt-BR')}</td></tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Período:</td><td style={{ padding: '8px 0' }}>{formatLocalDate(certData.start_date)} a {formatLocalDate(certData.end_date)}</td></tr>
                 <tr><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Código Verificador:</td><td style={{ padding: '8px 0', fontWeight: 'bold', color: 'var(--primary)' }}>{certData.verification_code}</td></tr>
               </tbody>
             </table>
@@ -2285,6 +2616,12 @@ function AdminEventsView({ token, showToast }) {
   const [selectedEventForManagement, setSelectedEventForManagement] = useState(null);
   const [workspaceTab, setWorkspaceTab] = useState('basic');
 
+  // Delete Event Form State
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleteConfirmCheckbox, setDeleteConfirmCheckbox] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Event Form State (Basic information)
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -2293,6 +2630,8 @@ function AdminEventsView({ token, showToast }) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [location, setLocation] = useState('Auditório Principal');
+  const [registrationStartDate, setRegistrationStartDate] = useState('');
+  const [registrationEndDate, setRegistrationEndDate] = useState('');
 
   // Incremental configurations
   const [bannerUrl, setBannerUrl] = useState('');
@@ -2304,9 +2643,11 @@ function AdminEventsView({ token, showToast }) {
 
   // Tickets / Categories
   const [regCategories, setRegCategories] = useState([
-    { name: 'Graduando', price: 0 },
-    { name: 'Professor da Educação Básica', price: 0 },
-    { name: 'Pesquisador', price: 50.00 }
+    { name: 'Estudante do Ensino Médio', price: 0 },
+    { name: 'Estudante da Graduação', price: 0 },
+    { name: 'Estudante da Pós-graduação', price: 0 },
+    { name: 'Professor(a) da Educação Básica', price: 0 },
+    { name: 'Professor(a) e Pesquisador(a) do Ensino Superior', price: 0 }
   ]);
 
   // Guests list & Form state
@@ -2315,7 +2656,20 @@ function AdminEventsView({ token, showToast }) {
   const [newGuestRole, setNewGuestRole] = useState('palestrante');
   const [newGuestInstitution, setNewGuestInstitution] = useState('');
   const [newGuestImageUrl, setNewGuestImageUrl] = useState('');
+  const [newGuestBio, setNewGuestBio] = useState('');
+  const [newGuestOrcid, setNewGuestOrcid] = useState('');
+  const [newGuestLattes, setNewGuestLattes] = useState('');
   const [isUploadingGuestImage, setIsUploadingGuestImage] = useState(false);
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [selectedSystemUserId, setSelectedSystemUserId] = useState('');
+  const [guestToDeleteId, setGuestToDeleteId] = useState(null);
+
+  // Supporters state
+  const [supportersList, setSupportersList] = useState([]);
+  const [newSupporterName, setNewSupporterName] = useState('');
+  const [newSupporterLogoUrl, setNewSupporterLogoUrl] = useState('');
+  const [isUploadingSupporterLogo, setIsUploadingSupporterLogo] = useState(false);
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
 
   // Certificate Customization State
   const [certBorderColor, setCertBorderColor] = useState('#1A365D');
@@ -2340,11 +2694,7 @@ function AdminEventsView({ token, showToast }) {
   const [assignmentsList, setAssignmentsList] = useState([]);
   const [evaluatorsPool, setEvaluatorsPool] = useState([]);
 
-  // Load events list and evaluators pool on mount
-  useEffect(() => {
-    fetchEvents();
-    fetchEvaluatorsPool();
-  }, []);
+
 
   const fetchEvaluatorsPool = async () => {
     try {
@@ -2396,9 +2746,34 @@ function AdminEventsView({ token, showToast }) {
     }
   };
 
+  // Load events list and evaluators pool when token is available
+  useEffect(() => {
+    if (token) {
+      fetchEvents();
+      fetchEvaluatorsPool();
+    }
+  }, [token]);
+
   const handleSelectEventForManagement = (ev) => {
     setSelectedEventForManagement(ev);
     setWorkspaceTab('basic');
+
+    // Reset delete form states
+    setDeleteReason('');
+    setDeleteConfirmName('');
+    setDeleteConfirmCheckbox(false);
+    setIsDeleting(false);
+
+    // Reset guest form states
+    setNewGuestName('');
+    setNewGuestRole('palestrante');
+    setNewGuestInstitution('');
+    setNewGuestImageUrl('');
+    setNewGuestBio('');
+    setNewGuestOrcid('');
+    setNewGuestLattes('');
+    setSelectedSystemUserId('');
+    setGuestToDeleteId(null);
 
     // Populate states
     setName(ev.name || '');
@@ -2409,6 +2784,8 @@ function AdminEventsView({ token, showToast }) {
     setStartDate(ev.start_date || '');
     setEndDate(ev.end_date || '');
     setLocation(ev.location || 'Auditório Principal');
+    setRegistrationStartDate(ev.registration_start_date || '');
+    setRegistrationEndDate(ev.registration_end_date || '');
 
     setWorkloadHours(ev.workload_hours ? ev.workload_hours.toString() : '20');
     setTransmissionLink(ev.transmission_link || '');
@@ -2417,9 +2794,11 @@ function AdminEventsView({ token, showToast }) {
     setSubmissionsEnabled(ev.submissions_enabled !== undefined ? ev.submissions_enabled : 1);
 
     setRegCategories(ev.registration_categories || [
-      { name: 'Graduando', price: 0 },
-      { name: 'Professor da Educação Básica', price: 0 },
-      { name: 'Pesquisador', price: 50.00 }
+      { name: 'Estudante do Ensino Médio', price: 0 },
+      { name: 'Estudante da Graduação', price: 0 },
+      { name: 'Estudante da Pós-graduação', price: 0 },
+      { name: 'Professor(a) da Educação Básica', price: 0 },
+      { name: 'Professor(a) e Pesquisador(a) do Ensino Superior', price: 0 }
     ]);
 
     // Parse guests
@@ -2432,6 +2811,17 @@ function AdminEventsView({ token, showToast }) {
       }
     }
     setGuestsList(parsedGuests);
+
+    // Parse supporters
+    let parsedSupporters = [];
+    if (ev.supporters) {
+      try {
+        parsedSupporters = typeof ev.supporters === 'string' ? JSON.parse(ev.supporters) : ev.supporters;
+      } catch (e) {
+        console.error('Error parsing supporters JSON', e);
+      }
+    }
+    setSupportersList(parsedSupporters);
 
     setCertBorderColor(ev.cert_border_color || '#1A365D');
     setCertSignatureName(ev.cert_signature_name || 'Comissão Organizadora G-TERCOA');
@@ -2446,6 +2836,22 @@ function AdminEventsView({ token, showToast }) {
     fetchRegistrations(ev.id);
     fetchSubmissions(ev.id);
     fetchAssignments(ev.id);
+    fetchSystemUsers();
+    fetchEvaluatorsPool();
+  };
+
+  const fetchSystemUsers = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSystemUsers(data);
+      }
+    } catch (err) {
+      console.error('Error fetching system users:', err);
+    }
   };
 
   const fetchCertificates = async (eventId) => {
@@ -2504,7 +2910,9 @@ function AdminEventsView({ token, showToast }) {
       description,
       start_date: startDate,
       end_date: endDate,
-      location
+      location,
+      registration_start_date: registrationStartDate || null,
+      registration_end_date: registrationEndDate || null
     };
 
     try {
@@ -2553,7 +2961,10 @@ function AdminEventsView({ token, showToast }) {
       submissions_enabled: overrides.submissions_enabled !== undefined ? overrides.submissions_enabled : submissionsEnabled,
       cert_text_organization: overrides.cert_text_organization !== undefined ? overrides.cert_text_organization : certTextOrganization,
       cert_text_presentation: overrides.cert_text_presentation !== undefined ? overrides.cert_text_presentation : certTextPresentation,
-      cert_text_guest: overrides.cert_text_guest !== undefined ? overrides.cert_text_guest : certTextGuest
+      cert_text_guest: overrides.cert_text_guest !== undefined ? overrides.cert_text_guest : certTextGuest,
+      registration_start_date: overrides.registration_start_date !== undefined ? overrides.registration_start_date : registrationStartDate,
+      registration_end_date: overrides.registration_end_date !== undefined ? overrides.registration_end_date : registrationEndDate,
+      supporters: overrides.supporters !== undefined ? overrides.supporters : supportersList
     };
 
     try {
@@ -2568,7 +2979,7 @@ function AdminEventsView({ token, showToast }) {
       const data = await res.json();
       if (res.ok) {
         showToast('Evento atualizado com sucesso!');
-        const updated = { ...selectedEventForManagement, ...payload, guests: JSON.stringify(payload.guests) };
+        const updated = { ...selectedEventForManagement, ...payload, guests: JSON.stringify(payload.guests), supporters: JSON.stringify(payload.supporters) };
         setSelectedEventForManagement(updated);
         fetchEvents();
         return true;
@@ -2611,6 +3022,37 @@ function AdminEventsView({ token, showToast }) {
       showToast('Erro ao enviar imagem', 'danger');
     } finally {
       setIsUploadingGuestImage(false);
+    }
+  };
+
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setIsUploadingBanner(true);
+    try {
+      const res = await fetch(`${API_URL}/api/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBannerUrl(data.image_url);
+        showToast('Capa do evento enviada com sucesso!');
+      } else {
+        showToast(data.error || 'Erro ao enviar imagem', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao enviar imagem', 'danger');
+    } finally {
+      setIsUploadingBanner(false);
     }
   };
 
@@ -2708,6 +3150,11 @@ function AdminEventsView({ token, showToast }) {
     setStartDate('');
     setEndDate('');
     setLocation('Auditório Principal');
+    setRegistrationStartDate('');
+    setRegistrationEndDate('');
+    setSupportersList([]);
+    setNewSupporterName('');
+    setNewSupporterLogoUrl('');
   };
 
   const tabStyle = (isActive) => ({
@@ -2781,6 +3228,16 @@ function AdminEventsView({ token, showToast }) {
               <input type="date" className="form-input" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
+          <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label className="form-label">Início das Inscrições</label>
+              <input type="date" className="form-input" value={registrationStartDate} onChange={(e) => setRegistrationStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">Fim das Inscrições</label>
+              <input type="date" className="form-input" value={registrationEndDate} onChange={(e) => setRegistrationEndDate(e.target.value)} />
+            </div>
+          </div>
           <div className="form-group">
             <label className="form-label">Local *</label>
             <input type="text" className="form-input" required value={location} onChange={(e) => setLocation(e.target.value)} />
@@ -2805,21 +3262,146 @@ function AdminEventsView({ token, showToast }) {
             <input type="number" className="form-input" required value={workloadHours} onChange={(e) => setWorkloadHours(e.target.value)} />
           </div>
           <div className="form-group">
-            <label className="form-label">Banner Imagem URL</label>
-            <input type="text" className="form-input" placeholder="http://..." value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)} />
+            <label className="form-label">Capa do Evento (Banner PNG/JPG)</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <input 
+                type="file" 
+                className="form-input" 
+                accept="image/*"
+                onChange={handleBannerUpload}
+              />
+              {isUploadingBanner && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Fazendo upload da capa...</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Ou insira a URL:</span>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  style={{ flex: 1 }} 
+                  placeholder="http://..." 
+                  value={bannerUrl} 
+                  onChange={(e) => setBannerUrl(e.target.value)} 
+                />
+              </div>
+            </div>
           </div>
           {bannerUrl && (
             <div style={{ marginBottom: '15px', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-              <img src={bannerUrl} alt="Banner Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }} />
+              <img src={getImageUrl(bannerUrl)} alt="Banner Preview" style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }} />
             </div>
           )}
           <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Salvar Configurações</button>
         </form>
       </div>
+
+      {/* Supporters Management Card */}
+      <div className="glass-card" style={{ gridColumn: '1 / -1' }}>
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Apoiadores & Parceiros</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
+          <div>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              Adicione os apoiadores e parceiros deste evento. Eles serão exibidos na página pública.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Nome do Apoiador / Instituição *</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Ex: CAPES, CNPq, UFC"
+                value={newSupporterName}
+                onChange={(e) => setNewSupporterName(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Logo (imagem)</label>
+              <input
+                type="file"
+                className="form-input"
+                accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const formData = new FormData();
+                  formData.append('image', file);
+                  setIsUploadingSupporterLogo(true);
+                  try {
+                    const res = await fetch(`${API_URL}/api/upload-image`, {
+                      method: 'POST',
+                      headers: { 'Authorization': `Bearer ${token}` },
+                      body: formData
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                      setNewSupporterLogoUrl(data.image_url);
+                      showToast('Logo enviado com sucesso!');
+                    } else {
+                      showToast(data.error || 'Erro ao enviar logo', 'danger');
+                    }
+                  } catch (err) {
+                    showToast('Erro ao enviar logo', 'danger');
+                  } finally {
+                    setIsUploadingSupporterLogo(false);
+                  }
+                }}
+              />
+              {isUploadingSupporterLogo && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>Enviando logo...</span>}
+              {newSupporterLogoUrl && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
+                  <img src={getImageUrl(newSupporterLogoUrl)} alt="Logo Preview" style={{ height: '36px', maxWidth: '100px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px' }} />
+                  <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 'bold' }}>Logo vinculado!</span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%' }}
+              onClick={async () => {
+                if (!newSupporterName.trim()) { showToast('Nome do apoiador é obrigatório', 'danger'); return; }
+                const newSupporter = { id: Date.now().toString(), name: newSupporterName.trim(), logo_url: newSupporterLogoUrl };
+                const updated = [...supportersList, newSupporter];
+                const success = await saveEventDetails({ supporters: updated });
+                if (success) {
+                  setSupportersList(updated);
+                  setNewSupporterName('');
+                  setNewSupporterLogoUrl('');
+                }
+              }}
+            >
+              Adicionar Apoiador
+            </button>
+          </div>
+
+          <div>
+            <h4 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '12px' }}>Apoiadores Cadastrados ({supportersList.length})</h4>
+            {supportersList.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum apoiador cadastrado ainda.</div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                {supportersList.map(s => (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--surface-secondary)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 14px' }}>
+                    {s.logo_url && <img src={getImageUrl(s.logo_url)} alt={s.name} style={{ height: '32px', maxWidth: '80px', objectFit: 'contain' }} />}
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{s.name}</span>
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '1rem', padding: '0 4px', lineHeight: 1 }}
+                      onClick={async () => {
+                        const updated = supportersList.filter(x => x.id !== s.id);
+                        const success = await saveEventDetails({ supporters: updated });
+                        if (success) setSupportersList(updated);
+                      }}
+                      title="Remover apoiador"
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 
-  const renderProgrammingGuestsTab = () => {
+  const renderGuestsTab = () => {
     const handleAddGuestSubmit = async (e) => {
       e.preventDefault();
       if (!newGuestName.trim()) {
@@ -2829,10 +3411,14 @@ function AdminEventsView({ token, showToast }) {
 
       const newGuest = {
         id: Date.now().toString(),
+        userId: selectedSystemUserId || null,
         name: newGuestName.trim(),
         role: newGuestRole,
         institution: newGuestInstitution.trim(),
-        image_url: newGuestImageUrl
+        image_url: newGuestImageUrl,
+        mini_bio: newGuestBio.trim(),
+        orcid_link: newGuestOrcid.trim(),
+        lattes_link: newGuestLattes.trim()
       };
 
       const updatedGuests = [...guestsList, newGuest];
@@ -2843,106 +3429,192 @@ function AdminEventsView({ token, showToast }) {
         setNewGuestName('');
         setNewGuestInstitution('');
         setNewGuestImageUrl('');
+        setNewGuestBio('');
+        setNewGuestOrcid('');
+        setNewGuestLattes('');
+        setSelectedSystemUserId('');
       }
     };
 
     const handleRemoveGuestClick = async (guestId) => {
-      if (!window.confirm('Deseja realmente remover este convidado?')) return;
       const updatedGuests = guestsList.filter(g => g.id !== guestId);
       const success = await saveEventDetails({ guests: updatedGuests });
       if (success) {
         setGuestsList(updatedGuests);
+        setGuestToDeleteId(null);
       }
     };
 
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
-        <div className="glass-card" style={{ height: 'fit-content' }}>
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Cadastrar Convidado</h3>
-          
-          <form onSubmit={handleAddGuestSubmit} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '20px', marginBottom: '20px' }}>
-            <div className="form-group">
-              <label className="form-label">Nome Completo *</label>
+      <div className="glass-card" style={{ height: 'fit-content' }}>
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Cadastrar Convidado</h3>
+        
+        <form onSubmit={handleAddGuestSubmit} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '20px', marginBottom: '20px' }}>
+          <div className="form-group">
+            <label className="form-label">Importar de Usuário Cadastrado (Opcional)</label>
+            <select
+              className="form-select"
+              value={selectedSystemUserId}
+              onChange={(e) => {
+                const uId = e.target.value;
+                setSelectedSystemUserId(uId);
+                if (uId) {
+                  const selectedUser = systemUsers.find(u => u.id === uId);
+                  if (selectedUser) {
+                    setNewGuestName(selectedUser.name);
+                  }
+                }
+              }}
+            >
+              <option value="">-- Convidado Externo (Sem conta cadastrada) --</option>
+              {systemUsers.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.email}) - {u.role === 'admin' ? 'Admin' : u.role === 'evaluator' ? 'Avaliador' : 'Participante'}
+                </option>
+              ))}
+            </select>
+            {selectedSystemUserId && (
+              <span style={{ fontSize: '0.8rem', color: 'var(--success)', display: 'block', marginTop: '4px', fontWeight: 'bold' }}>
+                ✓ Convidado vinculado a usuário do sistema.
+              </span>
+            )}
+          </div>
+          <div className="form-group">
+            <label className="form-label">Nome Completo *</label>
+            <input 
+              type="text" 
+              className="form-input" 
+              placeholder="Ex: Prof. Dr. Carlos Souza"
+              required
+              value={newGuestName}
+              onChange={(e) => setNewGuestName(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Papel / Função *</label>
+            <input 
+              type="text" 
+              className="form-input" 
+              placeholder="Ex: Palestrante, Mediador"
+              required
+              value={newGuestRole}
+              onChange={(e) => setNewGuestRole(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Instituição</label>
+            <input 
+              type="text" 
+              className="form-input" 
+              placeholder="Ex: UFC"
+              value={newGuestInstitution}
+              onChange={(e) => setNewGuestInstitution(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Foto de Perfil</label>
+            <input 
+              type="file" 
+              className="form-input" 
+              accept="image/*"
+              onChange={handleGuestImageUpload}
+            />
+            {isUploadingGuestImage && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>Fazendo upload...</span>}
+            {newGuestImageUrl && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
+                <img src={getImageUrl(newGuestImageUrl)} alt="Preview" style={{ width: '45px', height: '45px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)' }} />
+                <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 'bold' }}>Imagem vinculada!</span>
+              </div>
+            )}
+          </div>
+          <div className="form-group">
+            <label className="form-label">Minicurrículo</label>
+            <textarea 
+              className="form-textarea" 
+              placeholder="Breve biografia ou mini-currículo do convidado..."
+              style={{ minHeight: '60px' }}
+              value={newGuestBio}
+              onChange={(e) => setNewGuestBio(e.target.value)}
+            />
+          </div>
+          <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+            <div>
+              <label className="form-label">Link do ORCID</label>
               <input 
-                type="text" 
+                type="url" 
                 className="form-input" 
-                placeholder="Ex: Prof. Dr. Carlos Souza"
-                required
-                value={newGuestName}
-                onChange={(e) => setNewGuestName(e.target.value)}
+                placeholder="https://orcid.org/..."
+                value={newGuestOrcid}
+                onChange={(e) => setNewGuestOrcid(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">Papel / Função *</label>
+            <div>
+              <label className="form-label">Link do Lattes</label>
               <input 
-                type="text" 
+                type="url" 
                 className="form-input" 
-                placeholder="Ex: Palestrante, Mediador"
-                required
-                value={newGuestRole}
-                onChange={(e) => setNewGuestRole(e.target.value)}
+                placeholder="http://lattes.cnpq.br/..."
+                value={newGuestLattes}
+                onChange={(e) => setNewGuestLattes(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">Instituição</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Ex: UFC"
-                value={newGuestInstitution}
-                onChange={(e) => setNewGuestInstitution(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Foto de Perfil</label>
-              <input 
-                type="file" 
-                className="form-input" 
-                accept="image/*"
-                onChange={handleGuestImageUpload}
-              />
-              {isUploadingGuestImage && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>Fazendo upload...</span>}
-              {newGuestImageUrl && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
-                  <img src={`${API_URL}${newGuestImageUrl}`} alt="Preview" style={{ width: '45px', height: '45px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)' }} />
-                  <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 'bold' }}>Imagem vinculada!</span>
-                </div>
-              )}
-            </div>
-            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Adicionar Convidado</button>
-          </form>
+          </div>
+          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Adicionar Convidado</button>
+        </form>
 
-          <h4 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '12px' }}>Convidados do Evento ({guestsList.length})</h4>
-          {guestsList.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nenhum convidado cadastrado.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
-              {guestsList.map(g => (
-                <div key={g.id} style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', padding: '10px', background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {g.image_url ? (
-                      <img src={`${API_URL}${g.image_url}`} alt={g.name} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifycontent: 'center', fontWeight: 'bold', color: '#fff', fontSize: '0.9rem' }}>
-                        {g.name.charAt(0)}
+        <h4 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '12px' }}>Convidados do Evento ({guestsList.length})</h4>
+        {guestsList.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nenhum convidado cadastrado.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
+            {guestsList.map(g => (
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', padding: '10px', background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {g.image_url ? (
+                    <img src={getImageUrl(g.image_url)} alt={g.name} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#fff', fontSize: '0.9rem' }}>
+                      {g.name.charAt(0)}
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      {g.name}
+                      {g.userId && systemUsers.find(su => su.id === g.userId) && (
+                        <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'var(--success)', color: '#fff', borderRadius: '4px', fontWeight: 'bold' }}>
+                          ✓ Cadastrado ({systemUsers.find(su => su.id === g.userId).email})
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{g.role} {g.institution ? `@ ${g.institution}` : ''}</div>
+                    {(g.orcid_link || g.lattes_link) && (
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '2px', fontSize: '0.7rem' }}>
+                        {g.orcid_link && <a href={g.orcid_link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-light)' }}>ORCID</a>}
+                        {g.lattes_link && <a href={g.lattes_link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary-light)' }}>Lattes</a>}
                       </div>
                     )}
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{g.name}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{g.role} {g.institution ? `@ ${g.institution}` : ''}</div>
-                    </div>
                   </div>
-                  <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveGuestClick(g.id)}>Excluir</button>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <AdminActivitiesView token={token} showToast={showToast} selectedEventId={selectedEventForManagement.id} eventGuests={guestsList} />
-        </div>
+                {guestToDeleteId === g.id ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Confirmar exclusão?</span>
+                    <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveGuestClick(g.id)}>Sim</button>
+                    <button type="button" className="btn btn-secondary" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setGuestToDeleteId(null)}>Não</button>
+                  </div>
+                ) : (
+                  <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setGuestToDeleteId(g.id)}>Excluir</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+    );
+  };
+
+  const renderActivitiesTab = () => {
+    return (
+      <AdminActivitiesView token={token} showToast={showToast} selectedEventId={selectedEventForManagement.id} eventGuests={guestsList} />
     );
   };
 
@@ -3013,20 +3685,15 @@ function AdminEventsView({ token, showToast }) {
     };
 
     const handleAddCategory = () => {
-      setRegCategories(prev => [...prev, { name: '', price: 0 }]);
+      setRegCategories(prev => [...prev, { name: '' }]);
     };
 
     const handleRemoveCategory = (index) => {
       setRegCategories(prev => prev.filter((_, i) => i !== index));
     };
 
-    const handleCategoryChange = (index, field, value) => {
-      setRegCategories(prev => prev.map((cat, i) => {
-        if (i === index) {
-          return { ...cat, [field]: field === 'price' ? parseFloat(value) || 0 : value };
-        }
-        return cat;
-      }));
+    const handleCategoryChange = (index, value) => {
+      setRegCategories(prev => prev.map((cat, i) => i === index ? { ...cat, name: value } : cat));
     };
 
     return (
@@ -3035,28 +3702,18 @@ function AdminEventsView({ token, showToast }) {
           <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Credenciamento & Quiosque</h3>
           
           <form onSubmit={handleSaveCategories} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '20px', marginBottom: '20px' }}>
-            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Categorias de Inscrições</h4>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Categorias de Inscrição <span style={{ fontWeight: 400, fontSize: '0.8rem', color: 'var(--success)' }}>(todas gratuitas)</span></h4>
             
             {regCategories.map((cat, idx) => (
               <div key={idx} style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
                 <input 
                   type="text" 
                   className="form-input" 
-                  placeholder="Nome Ex: Graduando" 
+                  placeholder="Ex: Estudante da Graduação" 
                   required
                   value={cat.name}
-                  onChange={(e) => handleCategoryChange(idx, 'name', e.target.value)}
+                  onChange={(e) => handleCategoryChange(idx, e.target.value)}
                   style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                />
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  placeholder="R$ 0"
-                  step="0.01"
-                  required
-                  style={{ width: '90px', padding: '8px 12px', fontSize: '0.9rem' }}
-                  value={cat.price}
-                  onChange={(e) => handleCategoryChange(idx, 'price', e.target.value)}
                 />
                 <button type="button" className="btn btn-danger" style={{ padding: '6px 10px' }} onClick={() => handleRemoveCategory(idx)}>&times;</button>
               </div>
@@ -3451,210 +4108,178 @@ function AdminEventsView({ token, showToast }) {
   };
 
   const renderAssignmentsTab = () => {
-    const [selectedUser, setSelectedUser] = useState('');
-    const [assignedRole, setAssignedRole] = useState('evaluator');
-    const [selectedAxis, setSelectedAxis] = useState('');
-    const [isAssigningUser, setIsAssigningUser] = useState(false);
+    return (
+      <AdminAssignmentsView
+        token={token}
+        showToast={showToast}
+        selectedEventForManagement={selectedEventForManagement}
+        assignmentsList={assignmentsList}
+        fetchAssignments={fetchAssignments}
+        evaluatorsPool={evaluatorsPool}
+      />
+    );
+  };
 
-    const handleCreateAssignment = async (e) => {
+  const renderDeleteEventTab = () => {
+    const isConfirmValid = 
+      deleteReason.trim() !== '' && 
+      deleteConfirmName === selectedEventForManagement.name && 
+      deleteConfirmCheckbox;
+
+    const handleDeleteEvent = async (e) => {
       e.preventDefault();
-      if (!selectedUser || !assignedRole) {
-        showToast('Selecione o avaliador e o papel', 'danger');
-        return;
-      }
-      if (assignedRole === 'coordinator' && !selectedAxis) {
-        showToast('Selecione o eixo para o coordenador', 'danger');
-        return;
-      }
+      if (!isConfirmValid) return;
 
-      setIsAssigningUser(true);
+      setIsDeleting(true);
       try {
-        const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/assignments`, {
-          method: 'POST',
-          headers: {
+        const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}`, {
+          method: 'DELETE',
+          headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}` 
           },
-          body: JSON.stringify({
-            user_id: selectedUser,
-            role: assignedRole,
-            axis: assignedRole === 'coordinator' ? selectedAxis : null
-          })
+          body: JSON.stringify({ reason: deleteReason })
         });
         const data = await res.json();
         if (res.ok) {
-          showToast(data.message || 'Membro designado com sucesso!');
-          setSelectedUser('');
-          setSelectedAxis('');
-          fetchAssignments(selectedEventForManagement.id);
+          showToast(data.message || 'Evento excluído com sucesso!');
+          setDeleteReason('');
+          setDeleteConfirmName('');
+          setDeleteConfirmCheckbox(false);
+          setSelectedEventForManagement(null);
+          fetchEvents();
         } else {
-          showToast(data.error || 'Erro ao realizar designação', 'danger');
+          showToast(data.error || 'Erro ao excluir evento', 'danger');
         }
       } catch (err) {
         console.error(err);
-        showToast('Erro ao realizar designação', 'danger');
+        showToast('Erro ao conectar ao servidor', 'danger');
       } finally {
-        setIsAssigningUser(false);
+        setIsDeleting(false);
       }
     };
-
-    const handleRemoveAssignment = async (assignmentId) => {
-      if (!window.confirm('Deseja realmente remover esta designação?')) return;
-      try {
-        const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/assignments/${assignmentId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-          showToast('Designação removida com sucesso!');
-          fetchAssignments(selectedEventForManagement.id);
-        } else {
-          const data = await res.json();
-          showToast(data.error || 'Erro ao remover designação', 'danger');
-        }
-      } catch (err) {
-        console.error(err);
-        showToast('Erro ao remover designação', 'danger');
-      }
-    };
-
-    const coordinators = assignmentsList.filter(a => a.role === 'coordinator');
-    const evaluators = assignmentsList.filter(a => a.role === 'evaluator');
 
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
-        <div className="glass-card" style={{ height: 'fit-content' }}>
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Designar Membro da Comissão</h3>
-          
-          <form onSubmit={handleCreateAssignment}>
-            <div className="form-group">
-              <label className="form-label">Selecionar Avaliador *</label>
-              <select 
-                className="form-select" 
-                required 
-                value={selectedUser} 
-                onChange={(e) => setSelectedUser(e.target.value)}
-              >
-                <option value="">Selecione um avaliador cadastrado...</option>
-                {evaluatorsPool.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                ))}
-              </select>
+      <div style={{ maxWidth: '650px', margin: '0 auto' }}>
+        <div className="glass-card" style={{ border: '1px solid #feb2b2', background: 'rgba(254, 242, 242, 0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderRadius: 'var(--radius-sm)' }}>
+              <Trash2 size={24} />
             </div>
+            <div>
+              <h3 style={{ fontSize: '1.25rem', color: '#ef4444', margin: 0, fontWeight: 700 }}>Zona de Perigo: Excluir Evento</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>Esta ação é permanente e irreversível.</p>
+            </div>
+          </div>
 
+          <div style={{ 
+            background: 'rgba(239, 68, 68, 0.08)', 
+            borderLeft: '4px solid #ef4444', 
+            padding: '12px 16px', 
+            borderRadius: '0 var(--radius-sm) var(--radius-sm) 0',
+            fontSize: '0.85rem',
+            lineHeight: '1.4',
+            color: 'var(--text-primary)',
+            marginBottom: '20px'
+          }}>
+            <strong>Atenção:</strong> Ao confirmar a exclusão deste evento, todas as inscrições, credenciamentos, presenças em atividades, submissões de artigos e certificados vinculados a ele serão apagados do banco de dados definitivamente. Não será possível recuperar estas informações.
+          </div>
+
+          <form onSubmit={handleDeleteEvent} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="form-group">
-              <label className="form-label">Papel na Comissão *</label>
+              <label className="form-label" style={{ fontWeight: 600 }}>Motivo da Exclusão *</label>
               <select 
-                className="form-select" 
-                required 
-                value={assignedRole} 
+                className="form-input"
+                value={deleteReason.startsWith('Outro: ') ? 'Outro' : deleteReason}
                 onChange={(e) => {
-                  setAssignedRole(e.target.value);
-                  if (e.target.value !== 'coordinator') setSelectedAxis('');
+                  const val = e.target.value;
+                  if (val === 'Outro') {
+                    setDeleteReason('Outro: ');
+                  } else {
+                    setDeleteReason(val);
+                  }
                 }}
+                required
               >
-                <option value="evaluator">Avaliador (Geral)</option>
-                <option value="coordinator">Coordenador de Eixo</option>
+                <option value="">-- Selecione o motivo --</option>
+                <option value="Cancelamento do evento">Cancelamento do evento</option>
+                <option value="Erro de cadastro / Duplicidade">Erro de cadastro / Duplicidade</option>
+                <option value="Substituição por nova edição">Substituição por nova edição</option>
+                <option value="Outro">Outro (especifique abaixo)</option>
               </select>
             </div>
 
-            {assignedRole === 'coordinator' && (
+            {deleteReason.startsWith('Outro: ') && (
               <div className="form-group">
-                <label className="form-label">Eixo Temático Responsável *</label>
-                <select 
-                  className="form-select" 
-                  required={assignedRole === 'coordinator'} 
-                  value={selectedAxis} 
-                  onChange={(e) => setSelectedAxis(e.target.value)}
-                >
-                  <option value="">Selecione o eixo do evento...</option>
-                  {selectedEventForManagement.thematic_axes && selectedEventForManagement.thematic_axes.map((axis, i) => (
-                    <option key={i} value={axis}>{axis}</option>
-                  ))}
-                </select>
+                <label className="form-label">Por favor, especifique o motivo *</label>
+                <textarea
+                  className="form-textarea"
+                  placeholder="Descreva o motivo detalhado..."
+                  style={{ minHeight: '60px' }}
+                  required
+                  value={deleteReason.replace('Outro: ', '')}
+                  onChange={(e) => setDeleteReason('Outro: ' + e.target.value)}
+                />
               </div>
             )}
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={isAssigningUser}>
-              {isAssigningUser ? 'Processando...' : 'Designar Membro'}
-            </button>
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: 600 }}>
+                Para confirmar, digite o nome do evento abaixo:
+              </label>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px', padding: '6px 12px', background: 'var(--surface-secondary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', display: 'inline-block', fontFamily: 'monospace' }}>
+                {selectedEventForManagement.name}
+              </div>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Digite o nome exato do evento"
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                required
+                disabled={isDeleting}
+              />
+            </div>
+
+            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+              <input
+                type="checkbox"
+                id="confirm-delete-checkbox"
+                checked={deleteConfirmCheckbox}
+                onChange={(e) => setDeleteConfirmCheckbox(e.target.checked)}
+                style={{ width: '18px', height: '18px', marginTop: '3px', cursor: 'pointer' }}
+                disabled={isDeleting}
+              />
+              <label htmlFor="confirm-delete-checkbox" style={{ fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none', lineHeight: '1.4', color: 'var(--text-secondary)' }}>
+                Estou ciente de que esta ação é irreversível e removerá permanentemente o evento, inscrições, certificados e todos os dados associados.
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setWorkspaceTab('basic')}
+                disabled={isDeleting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="btn btn-danger"
+                style={{
+                  opacity: isConfirmValid ? 1 : 0.5,
+                  cursor: isConfirmValid ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                disabled={!isConfirmValid || isDeleting}
+              >
+                {isDeleting ? 'Excluindo...' : 'Excluir Evento Permanentemente'}
+              </button>
+            </div>
           </form>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          <div className="glass-card">
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Eixos Designados</h3>
-            {coordinators.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador designado para este evento.</p>
-            ) : (
-              <div className="table-container">
-                <table className="custom-table">
-                  <thead>
-                    <tr>
-                      <th>Nome</th>
-                      <th>E-mail</th>
-                      <th>Eixo Temático</th>
-                      <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {coordinators.map(coord => (
-                      <tr key={coord.id}>
-                        <td style={{ fontWeight: 600 }}>{coord.user_name}</td>
-                        <td>{coord.user_email}</td>
-                        <td style={{ color: 'var(--primary-light)', fontWeight: 600 }}>{coord.axis}</td>
-                        <td style={{ textAlign: 'center' }}>
-                          <button 
-                            className="btn btn-danger" 
-                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
-                            onClick={() => handleRemoveAssignment(coord.id)}
-                          >
-                            Remover
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="glass-card">
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Avaliadores Gerais Designados</h3>
-            {evaluators.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum avaliador designado para este evento.</p>
-            ) : (
-              <div className="table-container">
-                <table className="custom-table">
-                  <thead>
-                    <tr>
-                      <th>Nome</th>
-                      <th>E-mail</th>
-                      <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {evaluators.map(ev => (
-                      <tr key={ev.id}>
-                        <td style={{ fontWeight: 600 }}>{ev.user_name}</td>
-                        <td>{ev.user_email}</td>
-                        <td style={{ textAlign: 'center' }}>
-                          <button 
-                            className="btn btn-danger" 
-                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
-                            onClick={() => handleRemoveAssignment(ev.id)}
-                          >
-                            Remover
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     );
@@ -3684,7 +4309,7 @@ function AdminEventsView({ token, showToast }) {
               </h2>
               <div style={{ display: 'flex', gap: '15px', marginTop: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
                 <span><strong>Formato:</strong> {getFormatLabel(selectedEventForManagement.type)}</span>
-                <span><strong>Período:</strong> {new Date(selectedEventForManagement.start_date).toLocaleDateString('pt-BR')} a {new Date(selectedEventForManagement.end_date).toLocaleDateString('pt-BR')}</span>
+                <span><strong>Período:</strong> {formatLocalDate(selectedEventForManagement.start_date)} a {formatLocalDate(selectedEventForManagement.end_date)}</span>
                 <span><strong>Local:</strong> {selectedEventForManagement.location || 'Auditório Principal'}</span>
               </div>
             </div>
@@ -3713,10 +4338,16 @@ function AdminEventsView({ token, showToast }) {
               <Info size={16} /> Informações Básicas
             </button>
             <button 
-              style={tabStyle(workspaceTab === 'programming_guests')}
-              onClick={() => setWorkspaceTab('programming_guests')}
+              style={tabStyle(workspaceTab === 'guests')}
+              onClick={() => setWorkspaceTab('guests')}
             >
-              <Users size={16} /> Convidados & Programação
+              <Users size={16} /> Convidados
+            </button>
+            <button 
+              style={tabStyle(workspaceTab === 'activities')}
+              onClick={() => setWorkspaceTab('activities')}
+            >
+              <Calendar size={16} /> Programação
             </button>
             <button 
               style={tabStyle(workspaceTab === 'submissions')}
@@ -3742,16 +4373,27 @@ function AdminEventsView({ token, showToast }) {
             >
               <Award size={16} /> Certificados
             </button>
+            <button 
+              style={{
+                ...tabStyle(workspaceTab === 'delete'),
+                color: workspaceTab === 'delete' ? '#ef4444' : 'var(--text-secondary)'
+              }}
+              onClick={() => setWorkspaceTab('delete')}
+            >
+              <Trash2 size={16} /> Excluir Evento
+            </button>
           </div>
 
           {/* Tab content */}
           <div style={{ marginTop: '10px' }}>
             {workspaceTab === 'basic' && renderBasicInfoTab()}
-            {workspaceTab === 'programming_guests' && renderProgrammingGuestsTab()}
+            {workspaceTab === 'guests' && renderGuestsTab()}
+            {workspaceTab === 'activities' && renderActivitiesTab()}
             {workspaceTab === 'submissions' && renderSubmissionsTab()}
             {workspaceTab === 'checkin' && renderCheckinTab()}
             {workspaceTab === 'assignments' && renderAssignmentsTab()}
             {workspaceTab === 'certificates' && renderCertificatesTab()}
+            {workspaceTab === 'delete' && renderDeleteEventTab()}
           </div>
         </div>
       ) : (
@@ -3802,6 +4444,16 @@ function AdminEventsView({ token, showToast }) {
                 <div>
                   <label className="form-label">Data de Fim *</label>
                   <input type="date" className="form-input" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label className="form-label">Início das Inscrições</label>
+                  <input type="date" className="form-input" value={registrationStartDate} onChange={(e) => setRegistrationStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label">Fim das Inscrições</label>
+                  <input type="date" className="form-input" value={registrationEndDate} onChange={(e) => setRegistrationEndDate(e.target.value)} />
                 </div>
               </div>
               <div className="form-group">
@@ -3862,30 +4514,32 @@ function AdminEventsView({ token, showToast }) {
                       <h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 8px' }}>{ev.name}</h4>
                       
                       <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div>📅 {new Date(ev.start_date).toLocaleDateString('pt-BR')} a {new Date(ev.end_date).toLocaleDateString('pt-BR')}</div>
+                        <div>📅 {formatLocalDate(ev.start_date)} a {formatLocalDate(ev.end_date)}</div>
                         <div>📍 {ev.location || 'Auditório Principal'}</div>
                         {ev.workload_hours && <div>⏱️ Carga horária: {ev.workload_hours}h</div>}
                       </div>
                     </div>
 
-                    <button 
-                      className="btn btn-secondary" 
-                      onClick={() => handleSelectEventForManagement(ev)}
-                      style={{ 
-                        width: '100%', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        gap: '6px',
-                        background: 'var(--primary-glow)',
-                        color: 'var(--primary-light)',
-                        border: 'none',
-                        fontSize: '0.9rem',
-                        padding: '10px'
-                      }}
-                    >
-                      Gerenciar Evento &rarr;
-                    </button>
+                    <div style={{ display: 'flex' }}>
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={() => handleSelectEventForManagement(ev)}
+                        style={{ 
+                          flex: 1,
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          gap: '6px',
+                          background: 'var(--primary-glow)',
+                          color: 'var(--primary-light)',
+                          border: 'none',
+                          fontSize: '0.9rem',
+                          padding: '10px'
+                        }}
+                      >
+                        Gerenciar &rarr;
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3894,6 +4548,240 @@ function AdminEventsView({ token, showToast }) {
 
         </div>
       )}
+    </div>
+  );
+}
+
+function AdminAssignmentsView({
+  token,
+  showToast,
+  selectedEventForManagement,
+  assignmentsList,
+  fetchAssignments,
+  evaluatorsPool
+}) {
+  const [selectedUser, setSelectedUser] = useState('');
+  const [assignedRole, setAssignedRole] = useState('evaluator');
+  const [selectedAxis, setSelectedAxis] = useState('');
+  const [isAssigningUser, setIsAssigningUser] = useState(false);
+  const [assignmentToDeleteId, setAssignmentToDeleteId] = useState(null);
+
+  const handleCreateAssignment = async (e) => {
+    e.preventDefault();
+    if (!selectedUser || !assignedRole) {
+      showToast('Selecione o avaliador e o papel', 'danger');
+      return;
+    }
+    if (assignedRole === 'coordinator' && !selectedAxis) {
+      showToast('Selecione o eixo para o coordenador', 'danger');
+      return;
+    }
+
+    setIsAssigningUser(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/assignments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          user_id: selectedUser,
+          role: assignedRole,
+          axis: assignedRole === 'coordinator' ? selectedAxis : null
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Membro designado com sucesso!');
+        setSelectedUser('');
+        setSelectedAxis('');
+        fetchAssignments(selectedEventForManagement.id);
+      } else {
+        showToast(data.error || 'Erro ao realizar designação', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao realizar designação', 'danger');
+    } finally {
+      setIsAssigningUser(false);
+    }
+  };
+
+  const handleRemoveAssignment = async (assignmentId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/assignments/${assignmentId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        showToast('Designação removida com sucesso!');
+        fetchAssignments(selectedEventForManagement.id);
+        setAssignmentToDeleteId(null);
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Erro ao remover designação', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao remover designação', 'danger');
+    }
+  };
+
+  const coordinators = assignmentsList.filter(a => a.role === 'coordinator');
+  const evaluators = assignmentsList.filter(a => a.role === 'evaluator');
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
+      <div className="glass-card" style={{ height: 'fit-content' }}>
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Designar Membro da Comissão</h3>
+        
+        <form onSubmit={handleCreateAssignment}>
+          <div className="form-group">
+            <label className="form-label">Selecionar Avaliador *</label>
+            <select 
+              className="form-select" 
+              required 
+              value={selectedUser} 
+              onChange={(e) => setSelectedUser(e.target.value)}
+            >
+              <option value="">Selecione um avaliador cadastrado...</option>
+              {evaluatorsPool.map(u => (
+                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Papel na Comissão *</label>
+            <select 
+              className="form-select" 
+              required 
+              value={assignedRole} 
+              onChange={(e) => {
+                setAssignedRole(e.target.value);
+                if (e.target.value !== 'coordinator') setSelectedAxis('');
+              }}
+            >
+              <option value="evaluator">Avaliador (Geral)</option>
+              <option value="coordinator">Coordenador de Eixo</option>
+            </select>
+          </div>
+
+          {assignedRole === 'coordinator' && (
+            <div className="form-group">
+              <label className="form-label">Eixo Temático Responsável *</label>
+              <select 
+                className="form-select" 
+                required={assignedRole === 'coordinator'} 
+                value={selectedAxis} 
+                onChange={(e) => setSelectedAxis(e.target.value)}
+              >
+                <option value="">Selecione o eixo do evento...</option>
+                {selectedEventForManagement.thematic_axes && selectedEventForManagement.thematic_axes.map((axis, i) => (
+                  <option key={i} value={axis}>{axis}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={isAssigningUser}>
+            {isAssigningUser ? 'Processando...' : 'Designar Membro'}
+          </button>
+        </form>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Eixos Designados</h3>
+          {coordinators.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador designado para este evento.</p>
+          ) : (
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Eixo Temático</th>
+                    <th style={{ width: '120px', textAlign: 'center' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coordinators.map(coord => (
+                    <tr key={coord.id}>
+                      <td style={{ fontWeight: 600 }}>{coord.user_name}</td>
+                      <td>{coord.user_email}</td>
+                      <td style={{ color: 'var(--primary-light)', fontWeight: 600 }}>{coord.axis}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assignmentToDeleteId === coord.id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Confirmar?</span>
+                            <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveAssignment(coord.id)}>Sim</button>
+                            <button type="button" className="btn btn-secondary" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setAssignmentToDeleteId(null)}>Não</button>
+                          </div>
+                        ) : (
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
+                            onClick={() => setAssignmentToDeleteId(coord.id)}
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Avaliadores Gerais Designados</h3>
+          {evaluators.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum avaliador designado para este evento.</p>
+          ) : (
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th style={{ width: '120px', textAlign: 'center' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evaluators.map(ev => (
+                    <tr key={ev.id}>
+                      <td style={{ fontWeight: 600 }}>{ev.user_name}</td>
+                      <td>{ev.user_email}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assignmentToDeleteId === ev.id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Confirmar?</span>
+                            <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveAssignment(ev.id)}>Sim</button>
+                            <button type="button" className="btn btn-secondary" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setAssignmentToDeleteId(null)}>Não</button>
+                          </div>
+                        ) : (
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
+                            onClick={() => setAssignmentToDeleteId(ev.id)}
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -4730,7 +5618,8 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
 // ==========================================
 
 // Login Modal
-function LoginModal({ onClose, setToken, showToast }) {
+function LoginModal({ onClose, onLoginSuccess, showToast }) {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -4748,9 +5637,10 @@ function LoginModal({ onClose, setToken, showToast }) {
 
       const data = await res.json();
       if (res.ok) {
-        setToken(data.token);
+        onLoginSuccess(data.token, data.user);
         showToast('Login realizado com sucesso! Bem-vindo(a).');
         onClose();
+        navigate('/dashboard');
       } else {
         showToast(data.error || 'Erro ao realizar login', 'danger');
       }
@@ -4778,6 +5668,9 @@ function LoginModal({ onClose, setToken, showToast }) {
             <div className="form-group">
               <label className="form-label">Senha</label>
               <input id="login-password" type="password" className="form-input" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <div style={{ marginTop: '16px', padding: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: '#1e40af' }}>
+              <strong>Dica de Acesso:</strong> Acesse com o e-mail de teste <code>admin@gtercoa.org</code> e senha <code>admin</code>.
             </div>
           </div>
           <div className="modal-footer">
@@ -4897,12 +5790,13 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
   const [endTime, setEndTime] = useState('');
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
+  const [transmissionLink, setTransmissionLink] = useState('');
   
   // Guest list state for the new activity
   const [guests, setGuests] = useState([]);
-  const [guestName, setGuestName] = useState('');
-  const [guestRole, setGuestRole] = useState('palestrante');
-  const [guestInstitution, setGuestInstitution] = useState('');
+  const [selectedGuestId, setSelectedGuestId] = useState('');
+  const [editingActivityId, setEditingActivityId] = useState(null);
+  const [activityToDeleteId, setActivityToDeleteId] = useState(null);
 
   useEffect(() => {
     if (!propEventId) {
@@ -4948,18 +5842,30 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
     }
   };
 
-  const handleAddGuest = (e) => {
+  const handleLinkGuest = (e) => {
     e.preventDefault();
-    if (!guestName.trim()) {
-      showToast('Nome do convidado é obrigatório', 'danger');
+    if (!selectedGuestId) {
+      showToast('Selecione um convidado do evento', 'danger');
       return;
     }
+    const selected = eventGuests.find(g => g.id === selectedGuestId);
+    if (!selected) return;
+
+    if (guests.some(g => g.id === selected.id)) {
+      showToast('Este convidado já está vinculado a esta atividade', 'warning');
+      return;
+    }
+
     setGuests(prev => [
       ...prev,
-      { name: guestName.trim(), role: guestRole, institution: guestInstitution.trim() }
+      { 
+        id: selected.id, 
+        name: selected.name, 
+        role: selected.role || 'palestrante', 
+        institution: selected.institution || '' 
+      }
     ]);
-    setGuestName('');
-    setGuestInstitution('');
+    setSelectedGuestId('');
   };
 
   const handleRemoveGuest = (index) => {
@@ -4980,31 +5886,46 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
       end_time: endTime,
       location,
       description,
-      guests
+      guests,
+      transmission_link: transmissionLink
     };
 
     try {
-      const res = await fetch(`${API_URL}/api/events/${selectedEventId}/activities`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
+      let res;
+      if (editingActivityId) {
+        res = await fetch(`${API_URL}/api/activities/${editingActivityId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        res = await fetch(`${API_URL}/api/events/${selectedEventId}/activities`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+      }
 
       const data = await res.json();
       if (res.ok) {
-        showToast('Atividade adicionada com sucesso à programação!');
+        showToast(editingActivityId ? 'Atividade atualizada com sucesso!' : 'Atividade adicionada com sucesso à programação!');
         setTitle('');
         setStartTime('');
         setEndTime('');
         setLocation('');
         setDescription('');
+        setTransmissionLink('');
         setGuests([]);
+        setEditingActivityId(null);
         fetchActivities(selectedEventId);
       } else {
-        showToast(data.error || 'Erro ao criar atividade', 'danger');
+        showToast(data.error || 'Erro ao salvar atividade', 'danger');
       }
     } catch (err) {
       console.error(err);
@@ -5012,8 +5933,31 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
     }
   };
 
+  const handleEditClick = (act) => {
+    setEditingActivityId(act.id);
+    setTitle(act.title || '');
+    setType(act.type || 'palestra');
+    setStartTime(act.start_time || '');
+    setEndTime(act.end_time || '');
+    setLocation(act.location || '');
+    setDescription(act.description || '');
+    setTransmissionLink(act.transmission_link || '');
+    setGuests(act.guests || []);
+    document.getElementById('act-title')?.focus();
+  };
+
+  const handleCancelEdit = () => {
+    setEditingActivityId(null);
+    setTitle('');
+    setStartTime('');
+    setEndTime('');
+    setLocation('');
+    setDescription('');
+    setTransmissionLink('');
+    setGuests([]);
+  };
+
   const handleDeleteActivity = async (actId) => {
-    if (!window.confirm('Deseja realmente excluir esta atividade da programação?')) return;
     try {
       const res = await fetch(`${API_URL}/api/activities/${actId}`, {
         method: 'DELETE',
@@ -5033,10 +5977,12 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '450px 1fr', gap: '30px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
       {/* Activity Form */}
       <div className="glass-card">
-        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Criar Atividade</h3>
+        <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>
+          {editingActivityId ? 'Editar Atividade' : 'Criar Atividade'}
+        </h3>
         
         {!propEventId && (
           <div className="form-group">
@@ -5111,6 +6057,18 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
           </div>
 
           <div className="form-group">
+            <label className="form-label">Link de Transmissão (YouTube/Meet/etc.)</label>
+            <input 
+              id="act-transmission-link"
+              type="text" 
+              className="form-input" 
+              placeholder="Ex: https://youtube.com/live/..." 
+              value={transmissionLink} 
+              onChange={(e) => setTransmissionLink(e.target.value)} 
+            />
+          </div>
+
+          <div className="form-group">
             <label className="form-label">Resumo / Descrição</label>
             <textarea 
               id="act-description"
@@ -5126,60 +6084,44 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
             <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Adicionar Convidados (Palestrante/Mediador)</h4>
             
-            {eventGuests && eventGuests.length > 0 && (
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Vincular Convidado Cadastrado no Evento:</label>
-                <select 
-                  className="form-select"
-                  onChange={(e) => {
-                    const guestId = e.target.value;
-                    if (!guestId) return;
-                    const selected = eventGuests.find(g => g.id === guestId);
-                    if (selected) {
-                      setGuestName(selected.name);
-                      setGuestRole(selected.role.toLowerCase().includes('mediador') ? 'mediador' : 'palestrante');
-                      setGuestInstitution(selected.institution || '');
-                    }
-                  }}
-                  defaultValue=""
+            {(!eventGuests || eventGuests.length === 0) ? (
+              <div style={{ 
+                fontSize: '0.85rem', 
+                color: 'var(--text-secondary)', 
+                background: 'rgba(239, 68, 68, 0.05)', 
+                border: '1px solid rgba(239, 68, 68, 0.2)', 
+                padding: '12px', 
+                borderRadius: 'var(--radius-sm)',
+                marginBottom: '15px'
+              }}>
+                Nenhum convidado cadastrado no evento. Por favor, cadastre os convidados primeiro na aba <strong>Convidados & Programação</strong>.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '15px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Selecionar Convidado do Evento *</label>
+                  <select 
+                    className="form-select"
+                    value={selectedGuestId}
+                    onChange={(e) => setSelectedGuestId(e.target.value)}
+                  >
+                    <option value="">-- Escolher Convidado --</option>
+                    {eventGuests.map(g => (
+                      <option key={g.id} value={g.id}>{g.name} ({g.role}) {g.institution ? `@ ${g.institution}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <button 
+                  id="add-guest-btn" 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  style={{ width: '100%', padding: '8px' }} 
+                  onClick={handleLinkGuest}
                 >
-                  <option value="" disabled>-- Escolher Convidado --</option>
-                  {eventGuests.map(g => (
-                    <option key={g.id} value={g.id}>{g.name} ({g.role})</option>
-                  ))}
-                </select>
+                  <Plus size={16} /> Vincular Convidado à Atividade
+                </button>
               </div>
             )}
-
-            <div className="form-group">
-              <input 
-                id="guest-name"
-                type="text" 
-                className="form-input" 
-                placeholder="Nome do Convidado" 
-                value={guestName} 
-                onChange={(e) => setGuestName(e.target.value)} 
-              />
-            </div>
-
-            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <select id="guest-role" className="form-select" value={guestRole} onChange={(e) => setGuestRole(e.target.value)}>
-                <option value="palestrante">Palestrante / Convidado</option>
-                <option value="mediador">Mediador / Debatedor</option>
-              </select>
-              <input 
-                id="guest-institution"
-                type="text" 
-                className="form-input" 
-                placeholder="Instituição (Ex: UFC)" 
-                value={guestInstitution} 
-                onChange={(e) => setGuestInstitution(e.target.value)} 
-              />
-            </div>
-
-            <button id="add-guest-btn" type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: '15px', padding: '8px' }} onClick={handleAddGuest}>
-              <Plus size={16} /> Adicionar Convidado à Lista
-            </button>
 
             {/* Render guests list preview */}
             {guests.length > 0 && (
@@ -5197,9 +6139,16 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
             )}
           </div>
 
-          <button id="act-submit-btn" type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-            Adicionar Atividade à Programação
-          </button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button id="act-submit-btn" type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+              {editingActivityId ? 'Salvar Alterações' : 'Adicionar Atividade à Programação'}
+            </button>
+            {editingActivityId && (
+              <button type="button" className="btn btn-secondary" onClick={handleCancelEdit}>
+                Cancelar Edição
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
@@ -5241,7 +6190,17 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
                       <div style={{ fontWeight: 600 }}>{act.title}</div>
                       {act.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{act.description}</div>}
                     </td>
-                    <td>{act.location || 'Não especificado'}</td>
+                    <td>
+                      <div>{act.location || 'Não especificado'}</div>
+                      {act.transmission_link && (
+                        <div style={{ marginTop: '4px', fontSize: '0.8rem' }}>
+                          <a href={act.transmission_link} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--primary-light)', textDecoration: 'underline' }}>
+                            <ExternalLink size={12} />
+                            Transmissão
+                          </a>
+                        </div>
+                      )}
+                    </td>
                     <td>
                       {act.guests && act.guests.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.8rem' }}>
@@ -5256,9 +6215,25 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
                       )}
                     </td>
                     <td>
-                      <button className="btn btn-danger" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => handleDeleteActivity(act.id)}>
-                        Remover
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn btn-secondary" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => handleEditClick(act)}>
+                          Editar
+                        </button>
+                        {activityToDeleteId === act.id ? (
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button className="btn btn-danger" style={{ padding: '6px 10px', fontSize: '0.8rem', fontWeight: 'bold' }} onClick={() => { handleDeleteActivity(act.id); setActivityToDeleteId(null); }}>
+                              Sim
+                            </button>
+                            <button className="btn btn-secondary" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => setActivityToDeleteId(null)}>
+                              Não
+                            </button>
+                          </div>
+                        ) : (
+                          <button className="btn btn-danger" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => setActivityToDeleteId(act.id)}>
+                            Remover
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

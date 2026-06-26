@@ -53,6 +53,9 @@ const initPromise = new Promise((resolve, reject) => {
             cert_text_organization TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.',
             cert_text_presentation TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.',
             cert_text_guest TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.',
+            registration_start_date TEXT,
+            registration_end_date TEXT,
+            supporters TEXT DEFAULT '[]',
             created_at TEXT NOT NULL
           )
         `);
@@ -68,7 +71,11 @@ const initPromise = new Promise((resolve, reject) => {
           "ALTER TABLE events ADD COLUMN submissions_enabled INTEGER DEFAULT 1",
           "ALTER TABLE events ADD COLUMN cert_text_organization TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.'",
           "ALTER TABLE events ADD COLUMN cert_text_presentation TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado \"{titulo_trabalho}\" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.'",
-          "ALTER TABLE events ADD COLUMN cert_text_guest TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.'"
+          "ALTER TABLE events ADD COLUMN cert_text_guest TEXT DEFAULT 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.'",
+          "ALTER TABLE events ADD COLUMN registration_start_date TEXT",
+          "ALTER TABLE events ADD COLUMN registration_end_date TEXT",
+          "ALTER TABLE events ADD COLUMN supporters TEXT DEFAULT '[]'",
+          "ALTER TABLE activities ADD COLUMN transmission_link TEXT"
         ];
         alterColumns.forEach(query => {
           db.run(query, (err) => {
@@ -89,6 +96,7 @@ const initPromise = new Promise((resolve, reject) => {
             location TEXT,
             description TEXT,
             guests TEXT, -- JSON string array of guest objects
+            transmission_link TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE
           )
