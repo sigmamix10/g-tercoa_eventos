@@ -226,7 +226,8 @@ const initPromise = new Promise((resolve, reject) => {
         });
 
         // Check if admin is seeded
-        const adminEmail = 'admin@gtercoa.org';
+        const adminEmail = process.env.ADMIN_EMAIL || 'tercoa.monitoria@gmail.com';
+        const adminPassword = process.env.ADMIN_PASSWORD || 'G-tercoaufc@2024';
         db.get('SELECT id FROM users WHERE email = ?', [adminEmail], async (err, row) => {
           if (err) {
             console.error('Error querying admin:', err);
@@ -234,7 +235,7 @@ const initPromise = new Promise((resolve, reject) => {
           } else if (!row) {
             try {
               const salt = await bcrypt.genSalt(10);
-              const hash = await bcrypt.hash('admin', salt);
+              const hash = await bcrypt.hash(adminPassword, salt);
               const adminId = 'admin-uuid-0000-0000-000000000000';
               db.run(`
                 INSERT INTO users (id, name, email, password_hash, cpf, role, created_at)
@@ -252,7 +253,7 @@ const initPromise = new Promise((resolve, reject) => {
                   console.error('Error seeding admin user:', insertErr);
                   reject(insertErr);
                 } else {
-                  console.log('Default admin user created (admin@gtercoa.org / admin).');
+                  console.log(`Default admin user created (${adminEmail}).`);
                   resolve();
                 }
               });

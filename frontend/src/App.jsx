@@ -26,7 +26,7 @@ import {
   Trash2
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = '';
 
 const getImageUrl = (url) => {
   if (!url) return '';
@@ -5670,7 +5670,7 @@ function LoginModal({ onClose, onLoginSuccess, showToast }) {
               <input id="login-password" type="password" className="form-input" required value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
             <div style={{ marginTop: '16px', padding: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: '#1e40af' }}>
-              <strong>Dica de Acesso:</strong> Acesse com o e-mail de teste <code>admin@gtercoa.org</code> e senha <code>admin</code>.
+              <strong>Dica de Acesso:</strong> Acesse com o e-mail do administrador <code>tercoa.monitoria@gmail.com</code> e senha <code>G-tercoaufc@2024</code>.
             </div>
           </div>
           <div className="modal-footer">

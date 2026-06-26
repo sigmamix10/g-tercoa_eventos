@@ -8,7 +8,24 @@ Este guia contém as instruções completas para transferir, configurar e execut
 
 ---
 
-## Índice
+## ⚡ Método Recomendado: Script Automatizado
+
+Para facilitar a instalação, criamos o script `setup.sh` no repositório. Ele executa todos os passos listados neste documento de forma totalmente automatizada.
+
+### Como executar o Script no WSL:
+1. Abra o seu terminal WSL Ubuntu.
+2. Baixe o script de instalação direta a partir do seu repositório:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/sigmamix10/g-tercoa_eventos/main/setup.sh -o setup.sh
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+   *(Caso sua branch principal seja `master` em vez de `main`, substitua o nome correspondente na URL).*
+3. O script fará a instalação de todas as dependências do sistema operacional, fará o clone do repositório para a pasta nativa do Linux (`~/g-tercoa_eventos`), configurará as credenciais de e-mail e senha informadas, criará as tabelas do banco de dados SQLite e ativará o servidor Nginx.
+
+---
+
+## Índice de Passos Manuais (Caso prefira executar linha por linha)
 1. [Preparação do WSL Ubuntu](#1-preparação-do-wsl-ubuntu)
 2. [Cópia dos Arquivos para o Linux](#2-cópia-dos-arquivos-para-o-linux)
 3. [Configuração do Banco de Dados e Backend](#3-configuração-do-banco-de-dados-e-backend)
