@@ -64,15 +64,107 @@ prompt_default() {
     fi
 }
 
+# Função para exibir um menu de seleção interativo com recomendações
+# Argumentos:
+#   $1 - Título do menu
+#   $2 - Descrição
+#   $3 - Índice da opção recomendada (1-based)
+#   $4 - Nome da variável de retorno
+#   Resto - Opções textuais do menu
+select_menu() {
+    local title="$1"
+    local desc="$2"
+    local recommended="$3"
+    local var_name="$4"
+    shift 4
+    local options=("$@")
+    local num_options=${#options[@]}
+    
+    echo -e "\n${BLUE}----------------------------------------------------------------------${NC}"
+    echo -e "${BOLD}${title}${NC}"
+    if [ -n "$desc" ]; then
+        echo -e "${desc}"
+    fi
+    echo -e "${BLUE}----------------------------------------------------------------------${NC}"
+    
+    for i in "${!options[@]}"; do
+        local opt_num=$((i+1))
+        if [ "$opt_num" -eq "$recommended" ]; then
+            echo -e "  [${opt_num}] ${options[i]} ${GREEN}(Recomendado)${NC}"
+        else
+            echo -e "  [${opt_num}] ${options[i]}"
+        fi
+    done
+    
+    local choice=""
+    while true; do
+        echo -ne "Selecione uma opção [${YELLOW}${recommended}${NC}]: "
+        read -r choice
+        if [ -z "$choice" ]; then
+            choice="$recommended"
+        fi
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$num_options" ]; then
+            break
+        else
+            echo -e "${RED}Opção inválida. Por favor, escolha um número de 1 a ${num_options}.${NC}"
+        fi
+    done
+    
+    eval "$var_name=\"$choice\""
+}
+
 # ==============================================================================
 # PERGUNTAS DE CONFIGURAÇÃO (INTERATIVO)
 # ==============================================================================
 
 # 1. Usuário e Diretório de Destino
-if [ "$USER_NAME" = "root" ]; then
-    prompt_default "Usuário do sistema que será dono dos arquivos (evite usar root)" "sigmamix" "SYSTEM_USER"
+# Obter usuários existentes com UID >= 1000
+EXISTING_USERS=()
+if [ -f /etc/passwd ]; then
+    while IFS=: read -r username _ uid _ _ _ _; do
+        if [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ]; then
+            EXISTING_USERS+=("$username")
+        fi
+    done < /etc/passwd
+fi
+
+# Montar opções do menu de usuários
+USER_OPTIONS=()
+USER_OPTIONS+=("Criar um novo usuário específico para o sistema (ex: sigmamix)")
+
+RECOMMENDED_INDEX=1
+CURRENT_USER_OPT_INDEX=-1
+
+for u in "${EXISTING_USERS[@]}"; do
+    USER_OPTIONS+=("Usar o usuário existente: '$u'")
+    if [ "$u" = "$USER_NAME" ] && [ "$USER_NAME" != "root" ]; then
+        CURRENT_USER_OPT_INDEX=$((${#USER_OPTIONS[@]}))
+    fi
+done
+
+# Opção de usar root (sempre a última)
+USER_OPTIONS+=("Usar o usuário 'root' (NÃO RECOMENDADO por segurança)")
+
+if [ "$CURRENT_USER_OPT_INDEX" -ne -1 ]; then
+    RECOMMENDED_INDEX=$CURRENT_USER_OPT_INDEX
 else
-    prompt_default "Usuário do sistema que será dono dos arquivos" "$USER_NAME" "SYSTEM_USER"
+    RECOMMENDED_INDEX=1
+fi
+
+select_menu "1. USUÁRIO DO SISTEMA (Dono dos arquivos e processos PM2)" \
+            "O sistema deve rodar sob um usuário comum (não root) para maior segurança." \
+            "$RECOMMENDED_INDEX" \
+            "USER_CHOICE_IDX" \
+            "${USER_OPTIONS[@]}"
+
+# Processar a escolha do usuário
+CHOICE_VAL="${USER_OPTIONS[$((USER_CHOICE_IDX-1))]}"
+if [[ "$CHOICE_VAL" == "Criar um novo usuário"* ]]; then
+    prompt_default "Digite o nome do novo usuário a ser criado" "sigmamix" "SYSTEM_USER"
+elif [[ "$CHOICE_VAL" == "Usar o usuário 'root'"* ]]; then
+    SYSTEM_USER="root"
+else
+    SYSTEM_USER=$(echo "$CHOICE_VAL" | sed -E "s/Usar o usuário existente: '([^']+)'/\1/")
 fi
 
 # Determinar pasta home do usuário escolhido
@@ -81,37 +173,61 @@ if [ "$SYSTEM_USER" = "root" ]; then
 else
     USER_HOME="/home/$SYSTEM_USER"
 fi
-TARGET_DIR="$USER_HOME/g-tercoa_eventos"
+prompt_default "Diretório de destino para instalação" "$USER_HOME/g-tercoa_eventos" "TARGET_DIR"
 
 # 2. Fonte dos arquivos
-echo -e "\n${BOLD}Origem dos arquivos do projeto:${NC}"
-echo -e "  [1] Clonar do repositório GitHub (https://github.com/sigmamix10/g-tercoa_eventos.git)"
-echo -e "  [2] Copiar arquivos locais (desta pasta atual em que o script está rodando)"
-prompt_default "Selecione a opção" "1" "FILE_SOURCE_OPTION"
+select_menu "2. ORIGEM DOS ARQUIVOS DO PROJETO" \
+            "Escolha de onde obter os arquivos-fonte para a instalação:" \
+            "1" \
+            "FILE_SOURCE_OPTION" \
+            "Clonar do repositório remoto GitHub (Recomendado para produção/atualizações)" \
+            "Copiar arquivos locais desta pasta atual (Recomendado para desenvolvimento local/offline)"
 
 # 3. Domínio e Rede
-echo -e "\n${BOLD}Configurações de Rede e Nginx:${NC}"
-prompt_default "Domínio ou IP público do servidor (ex: gtercoa.org ou 198.51.100.5)" "localhost" "SERVER_NAME"
-prompt_default "Porta HTTP em que o site irá rodar" "8080" "HTTP_PORT"
+echo -e "\n${BLUE}----------------------------------------------------------------------${NC}"
+echo -e "${BOLD}3. CONFIGURAÇÕES DE REDE E DOMÍNIO${NC}"
+echo -e "Define o endereço de acesso e a porta de rede do servidor Nginx."
+echo -e "${BLUE}----------------------------------------------------------------------${NC}"
+prompt_default "Domínio ou IP público do servidor (Recomendado: seu domínio registrado, ex: gtercoa.org)" "localhost" "SERVER_NAME"
+
+# Recomendação inteligente de porta baseada no domínio escolhido
+DEFAULT_PORT="8080"
+if [ "$SERVER_NAME" != "localhost" ] && [ "$SERVER_NAME" != "127.0.0.1" ]; then
+    DEFAULT_PORT="80"
+fi
+prompt_default "Porta HTTP para o Nginx (Recomendado: 80 para produção e SSL)" "$DEFAULT_PORT" "HTTP_PORT"
 
 # 4. Credenciais do Administrador
-echo -e "\n${BOLD}Configuração do Usuário Administrador Principal:${NC}"
-prompt_default "E-mail do administrador" "tercoa.monitoria@gmail.com" "ADMIN_EMAIL"
-prompt_default "Senha do administrador" "G-tercoaufc@2024" "ADMIN_PASSWORD"
+SUGGESTED_PASS=$(openssl rand -hex 6)
+echo -e "\n${BLUE}----------------------------------------------------------------------${NC}"
+echo -e "${BOLD}4. CREDENCIAIS DO ADMINISTRADOR DO SISTEMA${NC}"
+echo -e "Estes dados serão usados para o primeiro acesso ao painel administrativo."
+echo -e "${BLUE}----------------------------------------------------------------------${NC}"
+prompt_default "E-mail do administrador (Recomendado: seu e-mail real)" "tercoa.monitoria@gmail.com" "ADMIN_EMAIL"
+prompt_default "Senha do administrador (Recomendado: digite uma senha segura)" "$SUGGESTED_PASS" "ADMIN_PASSWORD"
 
 # 5. Configuração de E-mail (SMTP)
-echo -e "\n${BOLD}Envio de E-mails (SMTP):${NC}"
-echo -ne "Deseja configurar envio de e-mails de comprovante reais via SMTP agora? (s/N): "
-read -r CONFIGURE_SMTP_ANSWER
+select_menu "5. CONFIGURAÇÃO DE ENVIO DE E-MAILS (SMTP)" \
+            "O sistema envia comprovantes de inscrição por e-mail. Escolha se deseja configurar agora:" \
+            "2" \
+            "SMTP_CHOICE" \
+            "Configurar SMTP real agora (Recomendado para produção, ex: Gmail/SendGrid)" \
+            "Pular e usar simulação/modo de teste (Recomendado para desenvolvimento rápido)"
 
 USE_REAL_SMTP=false
-if [[ "$CONFIGURE_SMTP_ANSWER" =~ ^[Ss]$ ]]; then
+if [ "$SMTP_CHOICE" = "1" ]; then
     USE_REAL_SMTP=true
-    prompt_default "Servidor SMTP Host" "smtp.gmail.com" "SMTP_HOST"
-    prompt_default "Porta SMTP" "587" "SMTP_PORT"
+    echo -e "\n${BOLD}Insira os dados do servidor SMTP:${NC}"
+    prompt_default "Servidor SMTP Host (Recomendado: smtp.gmail.com)" "smtp.gmail.com" "SMTP_HOST"
+    prompt_default "Porta SMTP (Recomendado: 587 para TLS/STARTTLS)" "587" "SMTP_PORT"
     prompt_default "Usuário/E-mail SMTP" "$ADMIN_EMAIL" "SMTP_USER"
-    prompt_default "Senha (ou Senha de Aplicativo)" "" "SMTP_PASS"
-    prompt_default "Usar conexão segura (SSL/TLS)? (s/N)" "n" "SMTP_SECURE_ANSWER"
+    prompt_default "Senha (ou Senha de Aplicativo/App Password)" "" "SMTP_PASS"
+    
+    DEFAULT_SECURE="n"
+    if [ "$SMTP_PORT" = "465" ]; then
+        DEFAULT_SECURE="s"
+    fi
+    prompt_default "Usar conexão segura (SSL/TLS)? (s/N)" "$DEFAULT_SECURE" "SMTP_SECURE_ANSWER"
     
     SMTP_SECURE="false"
     if [[ "$SMTP_SECURE_ANSWER" =~ ^[Ss]$ ]]; then
@@ -120,17 +236,24 @@ if [[ "$CONFIGURE_SMTP_ANSWER" =~ ^[Ss]$ ]]; then
 fi
 
 # 6. Instalação de SSL com Certbot
-echo -e "\n${BOLD}Certificado SSL (HTTPS):${NC}"
-echo -ne "Deseja instalar SSL (HTTPS) gratuito via Let's Encrypt/Certbot? (s/N): "
-read -r INSTALL_SSL_ANSWER
+echo -e "\n${BLUE}----------------------------------------------------------------------${NC}"
+echo -e "${BOLD}6. CERTIFICADO DE SEGURANÇA SSL (HTTPS)${NC}"
+echo -e "${BLUE}----------------------------------------------------------------------${NC}"
 
 INSTALL_SSL=false
-if [[ "$INSTALL_SSL_ANSWER" =~ ^[Ss]$ ]]; then
-    if [ "$SERVER_NAME" = "localhost" ] || [ "$SERVER_NAME" = "127.0.0.1" ]; then
-        echo -e "${RED}Erro: Não é possível emitir SSL para localhost/IP local. Opção desativada.${NC}"
-    elif [ "$HTTP_PORT" != "80" ]; then
-        echo -e "${RED}Erro: Certbot Let's Encrypt requer a porta HTTP 80 para validação. Opção desativada.${NC}"
-    else
+if [ "$SERVER_NAME" = "localhost" ] || [ "$SERVER_NAME" = "127.0.0.1" ]; then
+    echo -e "${YELLOW}Nota: SSL desabilitado automaticamente (não é possível emitir para localhost/IP local).${NC}"
+elif [ "$HTTP_PORT" != "80" ]; then
+    echo -e "${YELLOW}Nota: SSL desabilitado automaticamente (Certbot requer a porta HTTP 80 para validação).${NC}"
+else
+    select_menu "Instalação de SSL (HTTPS) via Let's Encrypt/Certbot:" \
+                "Recomendado para produção para proteger a transmissão de dados e senhas." \
+                "1" \
+                "SSL_CHOICE" \
+                "Instalar e configurar SSL (HTTPS) automaticamente (Altamente Recomendado)" \
+                "Não instalar SSL agora (Usar apenas HTTP inseguro)"
+      
+    if [ "$SSL_CHOICE" = "1" ]; then
         INSTALL_SSL=true
     fi
 fi
@@ -179,9 +302,15 @@ TOTAL_SWAP=$(free -m | awk '/^Swap:/{print $2}')
 if [ -n "$TOTAL_RAM" ] && [ "$TOTAL_RAM" -lt 1500 ] && { [ -z "$TOTAL_SWAP" ] || [ "$TOTAL_SWAP" -eq 0 ]; }; then
     echo -e "\n${YELLOW}Aviso: O servidor possui pouca RAM ($TOTAL_RAM MB) e nenhuma Swap ativa.${NC}"
     echo -e "${YELLOW}A compilação do Frontend React com Vite pode travar devido a falta de memória.${NC}"
-    echo -ne "Deseja que criemos um arquivo de Swap de 2GB automaticamente? (S/n): "
-    read -r CREATE_SWAP_ANSWER
-    if [[ ! "$CREATE_SWAP_ANSWER" =~ ^[Nn]$ ]]; then
+    
+    select_menu "Configuração de Memória Swap para Compilação" \
+                "Recomenda-se criar um arquivo Swap temporário ou permanente para evitar que o build trave." \
+                "1" \
+                "SWAP_CHOICE" \
+                "Criar e ativar arquivo Swap de 2GB automaticamente (Altamente Recomendado)" \
+                "Ignorar e prosseguir sem Swap (Pode causar falha no build do Frontend)"
+                
+    if [ "$SWAP_CHOICE" = "1" ]; then
         echo -e "${YELLOW}Criando e ativando arquivo Swap de 2GB (/swapfile)...${NC}"
         run_as_root fallocate -l 2G /swapfile || run_as_root dd if=/dev/zero of=/swapfile bs=1M count=2048
         run_as_root chmod 600 /swapfile
