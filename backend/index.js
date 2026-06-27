@@ -155,7 +155,14 @@ app.post('/api/auth/login', async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        cpf: user.cpf
+        cpf: user.cpf,
+        photo_url: user.photo_url,
+        minibio: user.minibio,
+        contact: user.contact,
+        institution: user.institution,
+        position: user.position,
+        lattes_link: user.lattes_link,
+        orcid: user.orcid
       }
     });
   } catch (err) {
@@ -167,7 +174,7 @@ app.post('/api/auth/login', async (req, res) => {
 // Obter Usuário Logado
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
-    const user = await getQuery('SELECT id, name, email, cpf, role, created_at FROM users WHERE id = ?', [req.user.id]);
+    const user = await getQuery('SELECT id, name, email, cpf, role, photo_url, minibio, contact, institution, position, lattes_link, orcid, created_at FROM users WHERE id = ?', [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
@@ -175,6 +182,34 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar dados do usuário' });
+  }
+});
+
+// Atualizar Perfil do Usuário Logado
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+  const { name, email, cpf, photo_url, minibio, contact, institution, position, lattes_link, orcid } = req.body;
+
+  if (!name || !email || !cpf) {
+    return res.status(400).json({ error: 'Nome, E-mail e CPF são obrigatórios' });
+  }
+
+  try {
+    await runQuery(`
+      UPDATE users
+      SET name = ?, email = ?, cpf = ?, photo_url = ?, minibio = ?, contact = ?, institution = ?, position = ?, lattes_link = ?, orcid = ?
+      WHERE id = ?
+    `, [name, email, cpf, photo_url, minibio, contact, institution, position, lattes_link, orcid, req.user.id]);
+
+    res.json({ message: 'Perfil atualizado com sucesso' });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint failed: users.email')) {
+      return res.status(400).json({ error: 'Este e-mail já está cadastrado por outro usuário' });
+    }
+    if (err.message.includes('UNIQUE constraint failed: users.cpf')) {
+      return res.status(400).json({ error: 'Este CPF já está cadastrado por outro usuário' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar perfil' });
   }
 });
 

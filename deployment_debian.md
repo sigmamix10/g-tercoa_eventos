@@ -53,7 +53,7 @@ O instalador conta com salvaguardas adicionais para garantir que tudo rode sem p
 3. **Domínio ou IP Público:**
    - Digite o seu domínio (ex: `gtercoa.org` ou `eventos.seu-dominio.com`) ou o IP público do servidor. O Nginx usará isso para configurar as rotas.
 4. **Porta HTTP:**
-   - O padrão é a porta `80` (tráfego HTTP padrão). Caso queira rodar em outra porta, basta alterá-la.
+   - O padrão agora é a porta `8080` para evitar conflitos com outros servidores web já existentes no sistema. Caso queira rodar em outra porta (como a porta 80), basta alterá-la.
 5. **E-mail e Senha Administrativos:**
    - Insira o e-mail e senha padrão do administrador principal do site de eventos. O instalador irá gerar as variáveis de ambiente e popular o banco de dados SQLite automaticamente.
 6. **Configuração de SMTP (Opcional):**

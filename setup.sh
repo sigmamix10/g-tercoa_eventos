@@ -92,7 +92,7 @@ prompt_default "Selecione a opção" "1" "FILE_SOURCE_OPTION"
 # 3. Domínio e Rede
 echo -e "\n${BOLD}Configurações de Rede e Nginx:${NC}"
 prompt_default "Domínio ou IP público do servidor (ex: gtercoa.org ou 198.51.100.5)" "localhost" "SERVER_NAME"
-prompt_default "Porta HTTP em que o site irá rodar" "80" "HTTP_PORT"
+prompt_default "Porta HTTP em que o site irá rodar" "8080" "HTTP_PORT"
 
 # 4. Credenciais do Administrador
 echo -e "\n${BOLD}Configuração do Usuário Administrador Principal:${NC}"

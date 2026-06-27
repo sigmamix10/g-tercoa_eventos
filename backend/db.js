@@ -24,6 +24,13 @@ const initPromise = new Promise((resolve, reject) => {
             password_hash TEXT NOT NULL,
             cpf TEXT UNIQUE NOT NULL,
             role TEXT CHECK(role IN ('admin', 'evaluator', 'participant')) NOT NULL,
+            photo_url TEXT,
+            minibio TEXT,
+            contact TEXT,
+            institution TEXT,
+            position TEXT,
+            lattes_link TEXT,
+            orcid TEXT,
             created_at TEXT NOT NULL
           )
         `);
@@ -75,7 +82,14 @@ const initPromise = new Promise((resolve, reject) => {
           "ALTER TABLE events ADD COLUMN registration_start_date TEXT",
           "ALTER TABLE events ADD COLUMN registration_end_date TEXT",
           "ALTER TABLE events ADD COLUMN supporters TEXT DEFAULT '[]'",
-          "ALTER TABLE activities ADD COLUMN transmission_link TEXT"
+          "ALTER TABLE activities ADD COLUMN transmission_link TEXT",
+          "ALTER TABLE users ADD COLUMN photo_url TEXT",
+          "ALTER TABLE users ADD COLUMN minibio TEXT",
+          "ALTER TABLE users ADD COLUMN contact TEXT",
+          "ALTER TABLE users ADD COLUMN institution TEXT",
+          "ALTER TABLE users ADD COLUMN position TEXT",
+          "ALTER TABLE users ADD COLUMN lattes_link TEXT",
+          "ALTER TABLE users ADD COLUMN orcid TEXT"
         ];
         alterColumns.forEach(query => {
           db.run(query, (err) => {
@@ -228,7 +242,7 @@ const initPromise = new Promise((resolve, reject) => {
         // Check if admin is seeded
         const adminEmail = process.env.ADMIN_EMAIL || 'tercoa.monitoria@gmail.com';
         const adminPassword = process.env.ADMIN_PASSWORD || 'G-tercoaufc@2024';
-        db.get('SELECT id FROM users WHERE email = ?', [adminEmail], async (err, row) => {
+        db.get('SELECT id, email, cpf FROM users WHERE email = ? OR cpf = ?', [adminEmail, '000.000.000-00'], async (err, row) => {
           if (err) {
             console.error('Error querying admin:', err);
             reject(err);
@@ -261,7 +275,32 @@ const initPromise = new Promise((resolve, reject) => {
               reject(hashErr);
             }
           } else {
-            resolve();
+            // Sincroniza dados do administrador se necessário para refletir o .env
+            try {
+              const salt = await bcrypt.genSalt(10);
+              const hash = await bcrypt.hash(adminPassword, salt);
+              db.run(`
+                UPDATE users
+                SET name = ?, email = ?, password_hash = ?, role = 'admin'
+                WHERE id = ? OR cpf = ?
+              `, [
+                'Administrador Geral G-TERCOA',
+                adminEmail,
+                hash,
+                row.id,
+                '000.000.000-00'
+              ], (updateErr) => {
+                if (updateErr) {
+                  console.error('Error updating admin user:', updateErr);
+                  reject(updateErr);
+                } else {
+                  console.log(`Admin user synchronized (${adminEmail}).`);
+                  resolve();
+                }
+              });
+            } catch (hashErr) {
+              reject(hashErr);
+            }
           }
         });
       });

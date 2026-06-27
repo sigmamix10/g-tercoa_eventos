@@ -116,7 +116,7 @@ export default function App() {
 
 
 
-  const fetchUserProfile = async (authToken) => {
+  const fetchUserProfile = async (authToken, skipSubViewReset = false) => {
     const activeToken = authToken || token;
     if (!activeToken) {
       setLoadingUser(false);
@@ -130,10 +130,12 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setUser(data);
-        // Set default dashboard view depending on role
-        if (data.role === 'admin') setDashboardSubView('admin-metrics');
-        else if (data.role === 'evaluator') setDashboardSubView('evaluator-reviews');
-        else setDashboardSubView('participant-events');
+        if (!skipSubViewReset) {
+          // Set default dashboard view depending on role
+          if (data.role === 'admin') setDashboardSubView('admin-metrics');
+          else if (data.role === 'evaluator') setDashboardSubView('evaluator-reviews');
+          else setDashboardSubView('participant-events');
+        }
       } else {
         setToken('');
         localStorage.removeItem('token');
@@ -291,6 +293,7 @@ export default function App() {
                   subView={dashboardSubView} 
                   setSubView={setDashboardSubView} 
                   showToast={showToast}
+                  refreshUserProfile={fetchUserProfile}
                 />
               ) : (
                 <Navigate to="/" replace />
@@ -1224,14 +1227,18 @@ function CertificateVerifyView({ showToast }) {
 }
 
 // 4. DASHBOARD ROUTER AND RBAC VIEWS
-function DashboardRouter({ user, token, subView, setSubView, showToast }) {
+function DashboardRouter({ user, token, subView, setSubView, showToast, refreshUserProfile }) {
   return (
     <div className="dashboard-grid">
       {/* Sidebar Navigation */}
       <aside className="dashboard-sidebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '30px', padding: '0 10px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justify: 'center', fontWeight: 'bold' }}>
-            {user.name.charAt(0)}
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justify: 'center', fontWeight: 'bold', overflow: 'hidden' }}>
+            {user.photo_url ? (
+              <img src={getImageUrl(user.photo_url)} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              user.name.charAt(0)
+            )}
           </div>
           <div>
             <h4 style={{ fontSize: '0.95rem', fontWeight: 700 }}>{user.name}</h4>
@@ -1277,6 +1284,12 @@ function DashboardRouter({ user, token, subView, setSubView, showToast }) {
         <a href="#" className={`sidebar-link ${subView === 'participant-certificates' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-certificates'); }}>
           <Award size={18} /> Meus Certificados
         </a>
+
+        {/* Settings / Profile section */}
+        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Configurações</div>
+        <a href="#" className={`sidebar-link ${subView === 'profile' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('profile'); }}>
+          <User size={18} /> Meu Perfil
+        </a>
       </aside>
  
       {/* Main Dashboard Content Area */}
@@ -1288,7 +1301,270 @@ function DashboardRouter({ user, token, subView, setSubView, showToast }) {
         {subView === 'coordinator-submissions' && <CoordinatorSubmissionsView token={token} showToast={showToast} />}
         {subView === 'admin-metrics' && <AdminMetricsView token={token} />}
         {subView === 'admin-events' && <AdminEventsView token={token} showToast={showToast} />}
+        {subView === 'profile' && <UserProfileView user={user} token={token} showToast={showToast} refreshUserProfile={refreshUserProfile} />}
       </section>
+    </div>
+  );
+}
+
+// USER PROFILE VIEW COMPONENT
+function UserProfileView({ user, token, showToast, refreshUserProfile }) {
+  const [name, setName] = useState(user.name || '');
+  const [email, setEmail] = useState(user.email || '');
+  const [cpf, setCpf] = useState(user.cpf || '');
+  const [photoUrl, setPhotoUrl] = useState(user.photo_url || '');
+  const [minibio, setMinibio] = useState(user.minibio || '');
+  const [contact, setContact] = useState(user.contact || '');
+  const [institution, setInstitution] = useState(user.institution || '');
+  const [position, setPosition] = useState(user.position || '');
+  const [lattesLink, setLattesLink] = useState(user.lattes_link || '');
+  const [orcid, setOrcid] = useState(user.orcid || '');
+
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setUploading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPhotoUrl(data.image_url);
+        showToast('Foto de perfil enviada com sucesso!');
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Erro ao enviar a foto', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede ao enviar foto', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          cpf,
+          photo_url: photoUrl,
+          minibio,
+          contact,
+          institution,
+          position,
+          lattes_link: lattesLink,
+          orcid
+        })
+      });
+
+      if (res.ok) {
+        showToast('Perfil atualizado com sucesso!');
+        await refreshUserProfile(token, true);
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Erro ao atualizar perfil', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede ao salvar perfil', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="profile-container">
+      <div style={{ marginBottom: '25px' }}>
+        <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)' }}>Meu Perfil</h2>
+        <p style={{ color: 'var(--text-secondary)' }}>Mantenha suas informações pessoais e acadêmicas atualizadas.</p>
+      </div>
+
+      <form onSubmit={handleSave} className="profile-grid-layout">
+        {/* Left Column: Photo Card */}
+        <div className="profile-card profile-photo-section">
+          <div className="profile-photo-wrapper">
+            <div className="profile-photo-container">
+              {photoUrl ? (
+                <img src={getImageUrl(photoUrl)} alt={name} className="profile-avatar-img" />
+              ) : (
+                <div className="profile-avatar-placeholder">
+                  <User size={48} />
+                </div>
+              )}
+              {uploading && (
+                <div className="profile-upload-overlay">
+                  <div className="spinner small"></div>
+                </div>
+              )}
+            </div>
+            
+            <label className="btn btn-secondary profile-upload-btn">
+              {uploading ? 'Enviando...' : 'Alterar Foto'}
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={handlePhotoUpload} 
+                style={{ display: 'none' }} 
+                disabled={uploading}
+              />
+            </label>
+            <p className="photo-instructions">PNG, JPG ou WEBP. Máx 5MB.</p>
+          </div>
+
+          <hr style={{ margin: '20px 0', borderColor: 'var(--border)' }} />
+
+          <div className="profile-summary">
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '5px' }}>{name || 'Seu Nome'}</h3>
+            <span className="badge badge-primary" style={{ textTransform: 'capitalize', display: 'inline-block' }}>
+              {user.role === 'admin' ? 'Administrador' : user.role === 'evaluator' ? 'Avaliador Científico' : 'Participante'}
+            </span>
+            <p style={{ marginTop: '15px', fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: minibio ? 'normal' : 'italic' }}>
+              {minibio || '"Nenhuma minibio fornecida ainda. Escreva algo sobre você na seção ao lado."'}
+            </p>
+          </div>
+        </div>
+
+        {/* Right Column: Profile Form Details */}
+        <div className="profile-card profile-form-section">
+          {/* Section: Informações Básicas */}
+          <div className="form-section-title">Informações Básicas</div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Nome Completo *</label>
+              <input 
+                type="text" 
+                value={name} 
+                onChange={(e) => setName(e.target.value)} 
+                required 
+                placeholder="Seu nome"
+              />
+            </div>
+            <div className="form-group">
+              <label>CPF *</label>
+              <input 
+                type="text" 
+                value={cpf} 
+                onChange={(e) => setCpf(e.target.value)} 
+                required 
+                placeholder="000.000.000-00"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>E-mail *</label>
+              <input 
+                type="email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                required 
+                placeholder="seu.email@exemplo.com"
+              />
+            </div>
+            <div className="form-group">
+              <label>Contato / Celular</label>
+              <input 
+                type="text" 
+                value={contact} 
+                onChange={(e) => setContact(e.target.value)} 
+                placeholder="(85) 99999-9999"
+              />
+            </div>
+          </div>
+
+          {/* Section: Perfil Profissional & Acadêmico */}
+          <div className="form-section-title" style={{ marginTop: '25px' }}>Perfil Acadêmico e Profissional</div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Instituição de Vínculo</label>
+              <input 
+                type="text" 
+                value={institution} 
+                onChange={(e) => setInstitution(e.target.value)} 
+                placeholder="Ex: Universidade Federal do Ceará (UFC)"
+              />
+            </div>
+            <div className="form-group">
+              <label>Cargo / Função</label>
+              <input 
+                type="text" 
+                value={position} 
+                onChange={(e) => setPosition(e.target.value)} 
+                placeholder="Ex: Professor Adjunto, Estudante de Mestrado"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Link Currículo Lattes</label>
+              <input 
+                type="url" 
+                value={lattesLink} 
+                onChange={(e) => setLattesLink(e.target.value)} 
+                placeholder="http://lattes.cnpq.br/..."
+              />
+            </div>
+            <div className="form-group">
+              <label>Identificador ORCID</label>
+              <input 
+                type="text" 
+                value={orcid} 
+                onChange={(e) => setOrcid(e.target.value)} 
+                placeholder="0000-0000-0000-0000"
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Minibio / Apresentação</label>
+            <textarea 
+              rows="4" 
+              value={minibio} 
+              onChange={(e) => setMinibio(e.target.value)} 
+              placeholder="Escreva um breve resumo profissional ou acadêmico sobre suas linhas de pesquisa ou atuação."
+            />
+          </div>
+
+          <div className="form-actions-wrapper">
+            <button 
+              type="submit" 
+              className="btn btn-primary" 
+              disabled={saving || uploading}
+              style={{ padding: '12px 30px', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              {saving ? (
+                <>
+                  <div className="spinner small white"></div> Salvando...
+                </>
+              ) : 'Salvar Alterações'}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
