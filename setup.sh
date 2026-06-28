@@ -258,6 +258,25 @@ else
     fi
 fi
 
+# 7. Tipo de Banco de Dados
+select_menu "7. BANCO DE DADOS DE PRODUÇÃO" \
+            "Escolha o mecanismo de banco de dados para o servidor:" \
+            "1" \
+            "DB_CHOICE" \
+            "Usar SQLite local (arquivo local, sem instalação adicional - Recomendado para sites pequenos)" \
+            "Usar MySQL ou MariaDB (Recomendado para produção/alta concorrência)"
+
+DB_TYPE="sqlite"
+if [ "$DB_CHOICE" = "2" ]; then
+    DB_TYPE="mysql"
+    echo -e "\n${BOLD}Insira os dados do banco de dados MySQL/MariaDB:${NC}"
+    prompt_default "Host do Banco de Dados" "localhost" "DB_HOST"
+    prompt_default "Porta do Banco de Dados" "3306" "DB_PORT"
+    prompt_default "Usuário do Banco de Dados" "root" "DB_USER"
+    prompt_default "Senha do Banco de Dados" "" "DB_PASSWORD"
+    prompt_default "Nome do Banco de Dados" "gtercoa_eventos" "DB_DATABASE"
+fi
+
 # Confirmar configurações
 echo -e "\n${BLUE}======================================================================${NC}"
 echo -e "${BOLD}CONFIRMAÇÃO DOS PARÂMETROS DE IMPLANTAÇÃO:${NC}"
@@ -269,6 +288,11 @@ echo -e "• E-mail do Administrador:   ${GREEN}$ADMIN_EMAIL${NC}"
 echo -e "• Senha do Administrador:    ${GREEN}$ADMIN_PASSWORD${NC}"
 echo -e "• SMTP Configurado:          ${GREEN}$USE_REAL_SMTP${NC}"
 echo -e "• Instalação SSL HTTPS:      ${GREEN}$INSTALL_SSL${NC}"
+echo -e "• Banco de Dados:            ${GREEN}$DB_TYPE${NC}"
+if [ "$DB_TYPE" = "mysql" ]; then
+echo -e "  └─ Host:                   ${GREEN}$DB_HOST:$DB_PORT${NC}"
+echo -e "  └─ Banco:                  ${GREEN}$DB_DATABASE${NC}"
+fi
 echo -e "${BLUE}======================================================================${NC}"
 echo -ne "Deseja iniciar a instalação com estes parâmetros? (S/n): "
 read -r START_INSTALL_ANSWER
@@ -391,14 +415,34 @@ PORT=5000
 JWT_SECRET=$JWT_GEN_SECRET
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASSWORD
+DB_TYPE=$DB_TYPE
 EOT
+    if [ "$DB_TYPE" = "mysql" ]; then
+        cat <<EOT >> .env
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+DB_DATABASE=$DB_DATABASE
+EOT
+    fi
 else
     sudo -u "$SYSTEM_USER" bash -c "cat <<EOT > .env
 PORT=5000
 JWT_SECRET=$JWT_GEN_SECRET
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASSWORD
+DB_TYPE=$DB_TYPE
 EOT"
+    if [ "$DB_TYPE" = "mysql" ]; then
+        sudo -u "$SYSTEM_USER" bash -c "cat <<EOT >> .env
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+DB_DATABASE=$DB_DATABASE
+EOT"
+    fi
 fi
 
 if [ "$USE_REAL_SMTP" = true ]; then
@@ -424,7 +468,7 @@ EOT"
 fi
 
 # Inicializar o banco de dados
-echo -e "${YELLOW}Inicializando tabelas do banco de dados SQLite...${NC}"
+echo -e "${YELLOW}Inicializando tabelas do banco de dados ($DB_TYPE)...${NC}"
 run_as_user node -e "const { initPromise } = require('./db.js'); initPromise.then(() => { console.log('Banco de dados inicializado com sucesso.'); process.exit(0); }).catch(err => { console.error(err); process.exit(1); });"
 
 # ==============================================================================
