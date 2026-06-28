@@ -113,6 +113,42 @@ select_menu() {
     eval "$var_name=\"$choice\""
 }
 
+USE_MIRROR=false
+
+check_connectivity() {
+    echo -e "${BLUE}Verificando conexão com a internet...${NC}"
+    # Test curl request with timeout
+    if ! curl -s --connect-timeout 5 -I https://registry.npmjs.org > /dev/null; then
+        echo -e "${YELLOW}Aviso: Não foi possível conectar ao registro do NPM (registry.npmjs.org).${NC}"
+        echo -e "Isso pode ser causado por um problema temporário de rede, DNS desconfigurado ou bloqueios de firewall."
+        
+        select_menu "Soluções de Rede e DNS para a VPS" \
+                    "Escolha uma ação para tentar corrigir a conexão e prosseguir:" \
+                    "1" \
+                    "NET_CHOICE" \
+                    "Tentar configurar DNS públicos (Google 8.8.8.8 / Cloudflare 1.1.1.1) automaticamente" \
+                    "Usar servidor espelho alternativo do NPM (npmmirror.com)" \
+                    "Ignorar e prosseguir mesmo assim"
+        
+        if [ "$NET_CHOICE" = "1" ]; then
+            echo -e "${YELLOW}Configurando servidores de DNS em /etc/resolv.conf...${NC}"
+            run_as_root bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+            run_as_root bash -c "echo 'nameserver 1.1.1.1' >> /etc/resolv.conf"
+            echo -e "${GREEN}DNS configurado. Testando conexão novamente...${NC}"
+            if curl -s --connect-timeout 5 -I https://registry.npmjs.org > /dev/null; then
+                echo -e "${GREEN}Conexão restabelecida com sucesso!${NC}"
+            else
+                echo -e "${RED}Conexão ainda falhando. Recomendamos revisar as configurações do seu provedor de nuvem.${NC}"
+            fi
+        elif [ "$NET_CHOICE" = "2" ]; then
+            echo -e "${YELLOW}Configurando o NPM para utilizar o espelho alternativo (npmmirror.com)...${NC}"
+            USE_MIRROR=true
+        fi
+    else
+        echo -e "${GREEN}Conexão com a internet OK!${NC}"
+    fi
+}
+
 # ==============================================================================
 # PERGUNTAS DE CONFIGURAÇÃO (INTERATIVO)
 # ==============================================================================
@@ -302,6 +338,8 @@ if [[ "$START_INSTALL_ANSWER" =~ ^[Nn]$ ]]; then
     exit 0
 fi
 
+check_connectivity
+
 # ==============================================================================
 # FASE 1: INSTALAÇÃO DE DEPENDÊNCIAS DO DEBIAN/UBUNTU
 # ==============================================================================
@@ -394,15 +432,27 @@ else
     fi
 fi
 
+# Criar pasta de uploads preventivamente
+run_as_root mkdir -p "$TARGET_DIR/backend/uploads"
+
 # Definir a propriedade para o usuário comum antes de começar a instalar pacotes e compilar
 run_as_root chown -R "$SYSTEM_USER:www-data" "$TARGET_DIR"
 run_as_root chmod -R 775 "$TARGET_DIR"
+
+# Garantir que o Nginx (www-data) consiga atravessar o diretório Home do usuário
+if [ "$SYSTEM_USER" != "root" ]; then
+    run_as_root chmod +x "/home/$SYSTEM_USER" 2>/dev/null || true
+fi
 
 # ==============================================================================
 # FASE 3: CONFIGURAÇÃO DO BACKEND
 # ==============================================================================
 echo -e "\n${YELLOW}[3/7] Configurando o Backend e dependências...${NC}"
 cd "$TARGET_DIR/backend" || exit
+if [ "$USE_MIRROR" = true ]; then
+    echo -e "${YELLOW}Configurando espelho alternativo do NPM no backend...${NC}"
+    run_as_user npm config set registry https://registry.npmmirror.com/
+fi
 run_as_user npm install --omit=dev
 
 echo -e "${YELLOW}Criando arquivo de variáveis de ambiente (.env)...${NC}"
@@ -476,6 +526,10 @@ run_as_user node -e "const { initPromise } = require('./db.js'); initPromise.the
 # ==============================================================================
 echo -e "\n${YELLOW}[4/7] Instalando dependências e compilando o Frontend...${NC}"
 cd "$TARGET_DIR/frontend" || exit
+if [ "$USE_MIRROR" = true ]; then
+    echo -e "${YELLOW}Configurando espelho alternativo do NPM no frontend...${NC}"
+    run_as_user npm config set registry https://registry.npmmirror.com/
+fi
 run_as_user npm install
 run_as_user npm run build
 
