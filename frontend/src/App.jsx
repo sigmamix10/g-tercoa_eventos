@@ -28,6 +28,9 @@ import {
   HelpCircle
 } from 'lucide-react';
 
+import logoLight from './assets/logo-light.png';
+import logoDark from './assets/logo-dark.png';
+
 const API_URL = '';
 
 const getImageUrl = (url) => {
@@ -234,9 +237,9 @@ export default function App() {
 
       {/* Navigation Header */}
       <nav className="main-nav">
-        <div className="logo-container" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
-          <BookOpen size={24} />
-          <span>G-TERCOA <span style={{ color: 'var(--accent-light)', fontWeight: 500 }}>Eventos</span></span>
+        <div className="logo-container" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => navigate('/')}>
+          <img src={logoLight} alt="G-TERCOA Logo" style={{ height: '52px', width: 'auto', objectFit: 'contain' }} />
+          <span style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--primary)' }}>Eventos</span>
         </div>
         <div className="nav-links">
           <Link to="/">Eventos</Link>
@@ -386,7 +389,8 @@ function HomeView({ showToast }) {
       <div className="hero-banner">
         {/* Abstract shapes */}
         <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }}></div>
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '15px' }}>Plataforma de Eventos Acadêmicos G-TERCOA</h1>
+        <img src={logoDark} alt="G-TERCOA Logo" style={{ height: '150px', width: 'auto', marginBottom: '20px', objectFit: 'contain' }} />
+        <h1 style={{ fontSize: '2.8rem', fontWeight: 800, marginBottom: '15px' }}>Plataforma de Eventos Acadêmicos</h1>
         <p style={{ fontSize: '1.15rem', maxWidth: '800px', margin: '0 auto', color: '#bfdbfe', fontWeight: 300 }}>
           Descubra e participe de nossos workshops, ciclos de lives, escolas de verão e do DIMA. Gerencie suas inscrições, envie artigos e emita certificados acadêmicos válidos.
         </p>
@@ -1300,10 +1304,16 @@ function DashboardRouter({ user, token, subView, setSubView, showToast, refreshU
       {/* Sidebar Navigation */}
       <aside className="dashboard-sidebar">
         {/* Toggle button */}
-        <div className="sidebar-toggle-container">
+        <div className="sidebar-toggle-container" style={{ marginBottom: '8px' }}>
           <button className="sidebar-toggle-btn" onClick={toggleSidebar} title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}>
             <Menu size={20} />
           </button>
+        </div>
+
+        {/* Sidebar Brand Logo */}
+        <div style={{ display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-start', alignItems: 'center', padding: '0 8px 16px 8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', gap: '12px', marginBottom: '16px' }}>
+          <img src={logoDark} alt="G-TERCOA Logo" style={{ height: sidebarCollapsed ? '32px' : '52px', width: 'auto', objectFit: 'contain', transition: 'all 0.3s' }} />
+          {!sidebarCollapsed && <span style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '1px', color: '#fff' }}>EVENTOS</span>}
         </div>
 
         {/* User Card */}
@@ -6537,9 +6547,10 @@ function LoginModal({ onClose, onLoginSuccess, showToast }) {
   return (
     <div className="modal-overlay">
       <div className="modal-container">
-        <div className="modal-header">
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary)' }}>Entrar na Plataforma</h3>
-          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer' }} onClick={onClose}>&times;</button>
+        <div className="modal-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px', position: 'relative', width: '100%', padding: '20px 24px 10px 24px' }}>
+          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', position: 'absolute', top: '15px', right: '15px' }} onClick={onClose}>&times;</button>
+          <img src={logoLight} alt="G-TERCOA Logo" style={{ height: '75px', width: 'auto', objectFit: 'contain', marginTop: '10px' }} />
+          <h3 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', margin: 0 }}>Entrar na Plataforma</h3>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
@@ -6606,9 +6617,10 @@ function RegisterModal({ onClose, showToast, setShowLoginModal }) {
   return (
     <div className="modal-overlay">
       <div className="modal-container">
-        <div className="modal-header">
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary)' }}>Criar Conta de Acesso</h3>
-          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer' }} onClick={onClose}>&times;</button>
+        <div className="modal-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px', position: 'relative', width: '100%', padding: '20px 24px 10px 24px' }}>
+          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', position: 'absolute', top: '15px', right: '15px' }} onClick={onClose}>&times;</button>
+          <img src={logoLight} alt="G-TERCOA Logo" style={{ height: '75px', width: 'auto', objectFit: 'contain', marginTop: '10px' }} />
+          <h3 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', margin: 0 }}>Criar Conta de Acesso</h3>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
