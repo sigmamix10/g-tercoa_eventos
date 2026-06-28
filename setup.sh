@@ -447,6 +447,9 @@ server {
     listen $HTTP_PORT;
     server_name $SERVER_NAME;
 
+    # Limite máximo de upload (necessário para imagens de perfil, banners e PDFs de submissão)
+    client_max_body_size 50M;
+
     # Frontend (Arquivos estáticos compilados)
     location / {
         root $TARGET_DIR/frontend/dist;

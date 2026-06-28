@@ -23,7 +23,9 @@ import {
   Lock,
   ExternalLink,
   MapPin,
-  Trash2
+  Trash2,
+  Menu,
+  HelpCircle
 } from 'lucide-react';
 
 const API_URL = '';
@@ -893,6 +895,37 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
           </section>
         )}
 
+        {((event.transmission_link) || (event.additional_links && event.additional_links.length > 0)) && (
+          <section>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#ec4899', borderRadius: '2px' }} />
+              Transmissão & Links Úteis
+            </h2>
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {event.transmission_link && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '0.95rem' }}>📺 <strong>Link Principal de Transmissão:</strong></span>
+                  <a href={event.transmission_link} target="_blank" rel="noreferrer" style={{ color: 'var(--primary-light)', fontWeight: 600, textDecoration: 'underline' }}>
+                    Assistir Transmissão Ao Vivo
+                  </a>
+                </div>
+              )}
+              {event.additional_links && event.additional_links.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: event.transmission_link ? '10px' : '0' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>Links Complementares:</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                    {event.additional_links.map((link, idx) => (
+                      <a key={idx} href={link.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--surface-secondary)', border: '1px solid var(--border)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.875rem', color: 'var(--text-primary)', textDecoration: 'none', transition: 'background 0.2s' }}>
+                        <ExternalLink size={14} style={{ color: 'var(--primary-light)' }} /> {link.label || 'Link'}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* ── PROGRAMAÇÃO ── */}
         <section>
           <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -929,6 +962,16 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
                                   <Video size={14} />
                                   Link de Transmissão / Vídeo
                                 </a>
+                              </div>
+                            )}
+                            {act.additional_links && act.additional_links.length > 0 && (
+                              <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '10px', fontSize: '0.8rem' }}>
+                                {act.additional_links.map((link, idx) => (
+                                  <a key={idx} href={link.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--primary-light)', fontWeight: 600, textDecoration: 'underline' }}>
+                                    <ExternalLink size={14} />
+                                    {link.label || 'Link'}
+                                  </a>
+                                ))}
                               </div>
                             )}
                             {act.guests && act.guests.length > 0 && (
@@ -1213,6 +1256,20 @@ function CertificateVerifyView({ showToast }) {
               <tbody>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Participante:</td><td style={{ padding: '8px 0', fontWeight: 600 }}>{certData.user_name}</td></tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>CPF:</td><td style={{ padding: '8px 0' }}>{certData.user_cpf}</td></tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Tipo:</td><td style={{ padding: '8px 0', fontWeight: 600 }}>
+                  {certData.type === 'participation' ? 'Participação' :
+                   certData.type === 'organization' ? 'Comissão Organizadora' :
+                   certData.type === 'presentation' ? 'Apresentação de Trabalho' :
+                   certData.type === 'guest' ? 'Convidado / Palestrante' :
+                   certData.type === 'organization_general' ? 'Organização (Geral)' :
+                   certData.type === 'organization_coordinator' ? 'Organização (Coordenador)' :
+                   certData.type === 'organization_technical' ? 'Organização (Técnico)' :
+                   certData.type === 'submission' ? 'Submissão de Trabalho' :
+                   certData.type === 'guest_speaker' ? 'Convidado (Palestrante)' :
+                   certData.type === 'guest_mediator' ? 'Convidado (Mediador)' :
+                   certData.type === 'workshop' ? 'Minicurso / Oficina' :
+                   certData.type}
+                </td></tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Evento:</td><td style={{ padding: '8px 0', fontWeight: 600 }}>{certData.event_name}</td></tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Carga Horária:</td><td style={{ padding: '8px 0' }}>{certData.workload_hours} horas</td></tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 0', color: 'var(--text-muted)' }}>Período:</td><td style={{ padding: '8px 0' }}>{formatLocalDate(certData.start_date)} a {formatLocalDate(certData.end_date)}</td></tr>
@@ -1228,67 +1285,94 @@ function CertificateVerifyView({ showToast }) {
 
 // 4. DASHBOARD ROUTER AND RBAC VIEWS
 function DashboardRouter({ user, token, subView, setSubView, showToast, refreshUserProfile }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    localStorage.getItem('sidebarCollapsed') === 'true'
+  );
+
+  const toggleSidebar = () => {
+    const nextState = !sidebarCollapsed;
+    setSidebarCollapsed(nextState);
+    localStorage.setItem('sidebarCollapsed', String(nextState));
+  };
+
   return (
-    <div className="dashboard-grid">
+    <div className={`dashboard-grid ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {/* Sidebar Navigation */}
       <aside className="dashboard-sidebar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '30px', padding: '0 10px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justify: 'center', fontWeight: 'bold', overflow: 'hidden' }}>
+        {/* Toggle button */}
+        <div className="sidebar-toggle-container">
+          <button className="sidebar-toggle-btn" onClick={toggleSidebar} title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}>
+            <Menu size={20} />
+          </button>
+        </div>
+
+        {/* User Card */}
+        <div className="sidebar-user-card">
+          <div className="sidebar-avatar">
             {user.photo_url ? (
-              <img src={getImageUrl(user.photo_url)} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={getImageUrl(user.photo_url)} alt={user.name} />
             ) : (
               user.name.charAt(0)
             )}
           </div>
-          <div>
-            <h4 style={{ fontSize: '0.95rem', fontWeight: 700 }}>{user.name}</h4>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'capitalize' }}>Painel {user.role}</span>
+          <div className="sidebar-user-details">
+            <h4>{user.name}</h4>
+            <span style={{ textTransform: 'capitalize' }}>
+              {user.role === 'admin' ? 'Administrador' : user.role === 'moderator' ? 'Moderador' : user.role === 'evaluator' ? 'Avaliador' : 'Participante'}
+            </span>
           </div>
         </div>
 
         {/* Dynamic Sidebar Links depending on Role */}
-        {user.role === 'admin' && (
+        {(user.role === 'admin' || user.role === 'moderator') && (
           <>
-            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Comissão</div>
-            <a href="#" className={`sidebar-link ${subView === 'admin-metrics' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('admin-metrics'); }}>
-              <LayoutDashboard size={18} /> Métrica Geral
-            </a>
+            <div className="sidebar-section-title">Comissão</div>
+            {user.role === 'admin' && (
+              <a href="#" className={`sidebar-link ${subView === 'admin-metrics' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('admin-metrics'); }}>
+                <LayoutDashboard size={18} /> <span className="sidebar-text">Métrica Geral</span>
+              </a>
+            )}
             <a href="#" className={`sidebar-link ${subView === 'admin-events' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('admin-events'); }}>
-              <Calendar size={18} /> Workspace Eventos
+              <Calendar size={18} /> <span className="sidebar-text">Workspace Eventos</span>
             </a>
+            {user.role === 'admin' && (
+              <a href="#" className={`sidebar-link ${subView === 'admin-users' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('admin-users'); }}>
+                <Users size={18} /> <span className="sidebar-text">Gerenciar Usuários</span>
+              </a>
+            )}
           </>
         )}
  
-        {(user.role === 'evaluator' || user.role === 'admin') && (
+        {(user.role === 'evaluator' || user.role === 'admin' || user.role === 'moderator') && (
           <>
-            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Comissão Científica</div>
+            <div className="sidebar-section-title">Comissão Científica</div>
             {user.role === 'evaluator' && (
               <a href="#" className={`sidebar-link ${subView === 'evaluator-reviews' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('evaluator-reviews'); }}>
-                <FileText size={18} /> Avaliar Trabalhos
+                <FileText size={18} /> <span className="sidebar-text">Avaliar Trabalhos</span>
               </a>
             )}
             <a href="#" className={`sidebar-link ${subView === 'coordinator-submissions' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('coordinator-submissions'); }}>
-              <Users size={18} /> Coordenação de Eixos
+              <Users size={18} /> <span className="sidebar-text">Coordenação de Eixos</span>
             </a>
           </>
         )}
  
         {/* All users have access to Participant section */}
-        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Participante</div>
+        <div className="sidebar-section-title">Participante</div>
         <a href="#" className={`sidebar-link ${subView === 'participant-events' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-events'); }}>
-          <Calendar size={18} /> Minhas Inscrições
+          <Calendar size={18} /> <span className="sidebar-text">Minhas Inscrições</span>
         </a>
         <a href="#" className={`sidebar-link ${subView === 'participant-submissions' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-submissions'); }}>
-          <FileText size={18} /> Minhas Submissões
+          <FileText size={18} /> <span className="sidebar-text">Minhas Submissões</span>
         </a>
         <a href="#" className={`sidebar-link ${subView === 'participant-certificates' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('participant-certificates'); }}>
-          <Award size={18} /> Meus Certificados
+          <Award size={18} /> <span className="sidebar-text">Meus Certificados</span>
         </a>
 
         {/* Settings / Profile section */}
-        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b', fontWeight: 'bold', margin: '15px 10px 5px' }}>Configurações</div>
+        <div className="sidebar-section-title">Configurações</div>
         <a href="#" className={`sidebar-link ${subView === 'profile' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setSubView('profile'); }}>
-          <User size={18} /> Meu Perfil
+          <User size={18} /> <span className="sidebar-text">Meu Perfil</span>
         </a>
       </aside>
  
@@ -1301,6 +1385,7 @@ function DashboardRouter({ user, token, subView, setSubView, showToast, refreshU
         {subView === 'coordinator-submissions' && <CoordinatorSubmissionsView token={token} showToast={showToast} />}
         {subView === 'admin-metrics' && <AdminMetricsView token={token} />}
         {subView === 'admin-events' && <AdminEventsView token={token} showToast={showToast} />}
+        {subView === 'admin-users' && <AdminUsersView token={token} showToast={showToast} />}
         {subView === 'profile' && <UserProfileView user={user} token={token} showToast={showToast} refreshUserProfile={refreshUserProfile} />}
       </section>
     </div>
@@ -1438,7 +1523,7 @@ function UserProfileView({ user, token, showToast, refreshUserProfile }) {
           <div className="profile-summary">
             <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '5px' }}>{name || 'Seu Nome'}</h3>
             <span className="badge badge-primary" style={{ textTransform: 'capitalize', display: 'inline-block' }}>
-              {user.role === 'admin' ? 'Administrador' : user.role === 'evaluator' ? 'Avaliador Científico' : 'Participante'}
+              {user.role === 'admin' ? 'Administrador' : user.role === 'moderator' ? 'Moderador' : user.role === 'evaluator' ? 'Avaliador Científico' : 'Participante'}
             </span>
             <p style={{ marginTop: '15px', fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: minibio ? 'normal' : 'italic' }}>
               {minibio || '"Nenhuma minibio fornecida ainda. Escreva algo sobre você na seção ao lado."'}
@@ -1854,6 +1939,18 @@ function ParticipantEventsView({ user, token, showToast }) {
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
                 Assista ao Ciclo de Lives e participe enviando suas dúvidas na caixa ao lado. Seu credenciamento virtual é gerado com base no check-in do administrador.
               </p>
+              {selectedLiveEvent.additional_links && selectedLiveEvent.additional_links.length > 0 && (
+                <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>Links Complementares / Materiais:</h4>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    {selectedLiveEvent.additional_links.map((link, idx) => (
+                      <a key={idx} href={link.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--surface-secondary)', border: '1px solid var(--border)', padding: '5px 10px', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-primary)', textDecoration: 'none' }}>
+                        <ExternalLink size={12} style={{ color: 'var(--primary-light)' }} /> {link.label || 'Link'}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2180,7 +2277,14 @@ function ParticipantCertificatesView({ token, showToast }) {
       'participation': 'Participação',
       'organization': 'Comissão Organizadora',
       'presentation': 'Apresentação de Trabalho',
-      'guest': 'Convidado / Palestrante'
+      'guest': 'Convidado / Palestrante',
+      'organization_general': 'Organização (Geral)',
+      'organization_coordinator': 'Organização (Coordenador)',
+      'organization_technical': 'Organização (Técnico)',
+      'submission': 'Submissão de Trabalho',
+      'guest_speaker': 'Convidado (Palestrante)',
+      'guest_mediator': 'Convidado (Mediador)',
+      'workshop': 'Minicurso / Oficina'
     };
     return labels[type] || 'Participação';
   };
@@ -2913,6 +3017,28 @@ function AdminEventsView({ token, showToast }) {
   const [bannerUrl, setBannerUrl] = useState('');
   const [workloadHours, setWorkloadHours] = useState('20');
   const [transmissionLink, setTransmissionLink] = useState('');
+  const [eventAdditionalLinks, setEventAdditionalLinks] = useState([]);
+  const [newEventLinkLabel, setNewEventLinkLabel] = useState('');
+  const [newEventLinkUrl, setNewEventLinkUrl] = useState('');
+
+  const handleAddEventLink = () => {
+    if (!newEventLinkLabel.trim() || !newEventLinkUrl.trim()) {
+      showToast('Preencha o nome e a URL do link', 'warning');
+      return;
+    }
+    let url = newEventLinkUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+    setEventAdditionalLinks(prev => [...prev, { label: newEventLinkLabel.trim(), url }]);
+    setNewEventLinkLabel('');
+    setNewEventLinkUrl('');
+  };
+
+  const handleRemoveEventLink = (index) => {
+    setEventAdditionalLinks(prev => prev.filter((_, i) => i !== index));
+  };
+
   const [thematicAxes, setThematicAxes] = useState('');
   const [submissionRules, setSubmissionRules] = useState('');
   const [submissionsEnabled, setSubmissionsEnabled] = useState(1);
@@ -2957,6 +3083,9 @@ function AdminEventsView({ token, showToast }) {
   const [certTextOrganization, setCertTextOrganization] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.');
   const [certTextPresentation, setCertTextPresentation] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.');
   const [certTextGuest, setCertTextGuest] = useState('Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.');
+  const [certBgFrontUrl, setCertBgFrontUrl] = useState('');
+  const [certBgBackUrl, setCertBgBackUrl] = useState('');
+  const [showCertHelp, setShowCertHelp] = useState(false);
 
   // Issuance and preview lists
   const [issueUserEmail, setIssueUserEmail] = useState('');
@@ -3065,6 +3194,7 @@ function AdminEventsView({ token, showToast }) {
 
     setWorkloadHours(ev.workload_hours ? ev.workload_hours.toString() : '20');
     setTransmissionLink(ev.transmission_link || '');
+    setEventAdditionalLinks(ev.additional_links || []);
     setThematicAxes(ev.thematic_axes ? ev.thematic_axes.join(', ') : '');
     setSubmissionRules(ev.submission_rules || '');
     setSubmissionsEnabled(ev.submissions_enabled !== undefined ? ev.submissions_enabled : 1);
@@ -3106,6 +3236,8 @@ function AdminEventsView({ token, showToast }) {
     setCertTextOrganization(ev.cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.');
     setCertTextPresentation(ev.cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.');
     setCertTextGuest(ev.cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.');
+    setCertBgFrontUrl(ev.cert_bg_front_url || '');
+    setCertBgBackUrl(ev.cert_bg_back_url || '');
 
     // Fetch lists
     fetchCertificates(ev.id);
@@ -3240,7 +3372,8 @@ function AdminEventsView({ token, showToast }) {
       cert_text_guest: overrides.cert_text_guest !== undefined ? overrides.cert_text_guest : certTextGuest,
       registration_start_date: overrides.registration_start_date !== undefined ? overrides.registration_start_date : registrationStartDate,
       registration_end_date: overrides.registration_end_date !== undefined ? overrides.registration_end_date : registrationEndDate,
-      supporters: overrides.supporters !== undefined ? overrides.supporters : supportersList
+      supporters: overrides.supporters !== undefined ? overrides.supporters : supportersList,
+      additional_links: overrides.additional_links !== undefined ? overrides.additional_links : eventAdditionalLinks
     };
 
     try {
@@ -3255,7 +3388,7 @@ function AdminEventsView({ token, showToast }) {
       const data = await res.json();
       if (res.ok) {
         showToast('Evento atualizado com sucesso!');
-        const updated = { ...selectedEventForManagement, ...payload, guests: JSON.stringify(payload.guests), supporters: JSON.stringify(payload.supporters) };
+        const updated = { ...selectedEventForManagement, ...payload, guests: JSON.stringify(payload.guests), supporters: JSON.stringify(payload.supporters), additional_links: payload.additional_links };
         setSelectedEventForManagement(updated);
         fetchEvents();
         return true;
@@ -3351,7 +3484,7 @@ function AdminEventsView({ token, showToast }) {
           user_email: issueUserEmail.trim(),
           type: issueCertType,
           workload_hours: parseInt(issueWorkload) || 20,
-          presentation_title: issueCertType === 'presentation' ? issuePresentationTitle.trim() : null
+          presentation_title: (issueCertType === 'presentation' || issueCertType === 'submission' || issueCertType === 'workshop') ? issuePresentationTitle.trim() : null
         })
       });
 
@@ -3431,6 +3564,9 @@ function AdminEventsView({ token, showToast }) {
     setSupportersList([]);
     setNewSupporterName('');
     setNewSupporterLogoUrl('');
+    setEventAdditionalLinks([]);
+    setNewEventLinkLabel('');
+    setNewEventLinkUrl('');
   };
 
   const tabStyle = (isActive) => ({
@@ -3532,6 +3668,54 @@ function AdminEventsView({ token, showToast }) {
           <div className="form-group">
             <label className="form-label">Link de Transmissão (Lives/Meet)</label>
             <input type="text" className="form-input" placeholder="YouTube, Meet Link..." value={transmissionLink} onChange={(e) => setTransmissionLink(e.target.value)} />
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px', marginBottom: '15px' }}>
+            <label className="form-label" style={{ fontWeight: 700 }}>Outros Links do Evento (Documentos, Apoio, Redes)</label>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+              <input 
+                type="text" 
+                className="form-input" 
+                style={{ flex: 1 }}
+                placeholder="Nome (ex: Instagram, Pasta Drive)" 
+                value={newEventLinkLabel} 
+                onChange={(e) => setNewEventLinkLabel(e.target.value)} 
+              />
+              <input 
+                type="text" 
+                className="form-input" 
+                style={{ flex: 2 }}
+                placeholder="URL (https://...)" 
+                value={newEventLinkUrl} 
+                onChange={(e) => setNewEventLinkUrl(e.target.value)} 
+              />
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleAddEventLink}
+                style={{ whiteSpace: 'nowrap', padding: '0 15px' }}
+              >
+                + Add
+              </button>
+            </div>
+            {eventAdditionalLinks.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--surface-secondary)', padding: '10px', borderRadius: 'var(--radius-sm)', marginBottom: '15px' }}>
+                {eventAdditionalLinks.map((link, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', background: '#fff', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                    <div style={{ wordBreak: 'break-all' }}>
+                      <strong>{link.label || 'Link'}:</strong> <a href={link.url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary-light)', textDecoration: 'underline' }}>{link.url}</a>
+                    </div>
+                    <button 
+                      type="button" 
+                      style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '1.1rem', marginLeft: '10px' }} 
+                      onClick={() => handleRemoveEventLink(idx)}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="form-group">
             <label className="form-label">Carga Horária Geral (horas) *</label>
@@ -4052,16 +4236,56 @@ function AdminEventsView({ token, showToast }) {
         cert_text_template: certTextTemplate,
         cert_text_organization: certTextOrganization,
         cert_text_presentation: certTextPresentation,
-        cert_text_guest: certTextGuest
+        cert_text_guest: certTextGuest,
+        cert_bg_front_url: certBgFrontUrl,
+        cert_bg_back_url: certBgBackUrl
       });
+    };
+
+    const handleBgImageUpload = async (file, type) => {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('image', file);
+
+      showToast('Enviando imagem de fundo...');
+      try {
+        const res = await fetch(`${API_URL}/api/upload-image`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (type === 'front') {
+            setCertBgFrontUrl(data.image_url);
+          } else {
+            setCertBgBackUrl(data.image_url);
+          }
+          showToast('Imagem de fundo enviada com sucesso!');
+        } else {
+          showToast(data.error || 'Erro ao enviar imagem', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro de conexão ao enviar imagem', 'danger');
+      }
     };
 
     const getCertTypeLabel = (t) => {
       const labels = {
         'participation': 'Participação',
         'organization': 'Comissão Organizadora',
-        'presentation': 'Apresentação',
-        'guest': 'Convidado / Palestrante'
+        'presentation': 'Apresentação de Trabalho',
+        'guest': 'Convidado / Palestrante',
+        'organization_general': 'Organização (Geral)',
+        'organization_coordinator': 'Organização (Coordenador)',
+        'organization_technical': 'Organização (Técnico)',
+        'submission': 'Submissão de Trabalho',
+        'guest_speaker': 'Convidado (Palestrante)',
+        'guest_mediator': 'Convidado (Mediador)',
+        'workshop': 'Minicurso / Oficina'
       };
       return labels[t] || t;
     };
@@ -4071,7 +4295,41 @@ function AdminEventsView({ token, showToast }) {
         
         {/* Templates Panel */}
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Modelos de Certificados</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', margin: 0 }}>Modelos de Certificados</h3>
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={() => setShowCertHelp(!showCertHelp)}
+              style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px' }}
+            >
+              <HelpCircle size={16} /> {showCertHelp ? 'Fechar Ajuda' : 'Ajuda / Tags'}
+            </button>
+          </div>
+
+          {showCertHelp && (
+            <div className="glass-card" style={{ background: 'rgba(59, 130, 246, 0.05)', border: '1px solid var(--primary-light)', padding: '15px', marginBottom: '20px', borderRadius: 'var(--radius-sm)' }}>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)', marginBottom: '10px' }}>
+                <Info size={18} /> Como Configurar os Certificados?
+              </h4>
+              <p style={{ fontSize: '0.82rem', lineHeight: '1.4', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                Você pode personalizar os textos e o visual dos certificados. Se desejar, envie imagens de fundo (PNG frente e verso) para que a plataforma insira apenas os textos por cima do seu layout personalizado!
+              </p>
+              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '5px' }}>Tags de Substituição Disponíveis:</h5>
+              <ul style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', paddingLeft: '20px', lineHeight: '1.5', margin: '0 0 10px 0' }}>
+                <li><strong>{`{nome}`}</strong>: Nome completo do destinatário.</li>
+                <li><strong>{`{cpf}`}</strong>: CPF formatado do destinatário.</li>
+                <li><strong>{`{evento}`}</strong>: Nome oficial do evento.</li>
+                <li><strong>{`{periodo}`}</strong>: Período do evento (ex: "no dia 10 de maio" ou "no período de 10 a 12 de maio").</li>
+                <li><strong>{`{carga_horaria}`}</strong>: Carga horária do certificado (ex: 20).</li>
+                <li><strong>{`{titulo_trabalho}`}</strong>: Título do trabalho (apenas para apresentação/submissão e oficinas).</li>
+              </ul>
+              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '5px' }}>Imagens de Fundo:</h5>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
+                A imagem deve estar no formato <strong>PNG em modo paisagem (A4)</strong>. Se você configurar uma imagem de frente, o sistema ocultará os detalhes visuais padrão da plataforma e inserirá apenas os textos (no centro), a assinatura e o código autenticador. Se configurar uma imagem de verso, o certificado gerado terá 2 páginas.
+              </p>
+            </div>
+          )}
           
           <form onSubmit={handleSaveTemplates}>
             <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '15px' }}>
@@ -4118,6 +4376,68 @@ function AdminEventsView({ token, showToast }) {
             </div>
 
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Imagens de Fundo do Certificado (PNG)</h4>
+              
+              <div className="form-group" style={{ marginBottom: '10px' }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Frente do Certificado (.png)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="URL da imagem da frente do certificado..."
+                    value={certBgFrontUrl}
+                    onChange={(e) => setCertBgFrontUrl(e.target.value)}
+                    style={{ fontSize: '0.85rem', padding: '8px' }}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary"
+                    onClick={() => document.getElementById('cert-bg-front-file').click()}
+                    style={{ padding: '8px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                  >
+                    Upload
+                  </button>
+                  <input 
+                    type="file"
+                    id="cert-bg-front-file"
+                    accept="image/png"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleBgImageUpload(e.target.files[0], 'front')}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '15px' }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Verso do Certificado (.png - Opcional)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="URL da imagem do verso do certificado..."
+                    value={certBgBackUrl}
+                    onChange={(e) => setCertBgBackUrl(e.target.value)}
+                    style={{ fontSize: '0.85rem', padding: '8px' }}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary"
+                    onClick={() => document.getElementById('cert-bg-back-file').click()}
+                    style={{ padding: '8px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                  >
+                    Upload
+                  </button>
+                  <input 
+                    type="file"
+                    id="cert-bg-back-file"
+                    accept="image/png"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleBgImageUpload(e.target.files[0], 'back')}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
               <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Personalização de Texto</h4>
               
               <div className="form-group">
@@ -4126,7 +4446,7 @@ function AdminEventsView({ token, showToast }) {
                   className="form-textarea" 
                   value={certTextTemplate}
                   onChange={(e) => setCertTextTemplate(e.target.value)}
-                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
               </div>
@@ -4137,7 +4457,7 @@ function AdminEventsView({ token, showToast }) {
                   className="form-textarea" 
                   value={certTextOrganization}
                   onChange={(e) => setCertTextOrganization(e.target.value)}
-                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
               </div>
@@ -4148,7 +4468,7 @@ function AdminEventsView({ token, showToast }) {
                   className="form-textarea" 
                   value={certTextPresentation}
                   onChange={(e) => setCertTextPresentation(e.target.value)}
-                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}, {titulo_trabalho}`}</span>
               </div>
@@ -4159,13 +4479,13 @@ function AdminEventsView({ token, showToast }) {
                   className="form-textarea" 
                   value={certTextGuest}
                   onChange={(e) => setCertTextGuest(e.target.value)}
-                  style={{ minHeight: '60px', fontSize: '0.85rem' }}
+                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
                 />
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>Salvar Templates</button>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '15px' }}>Salvar Templates</button>
           </form>
         </div>
 
@@ -4204,18 +4524,24 @@ function AdminEventsView({ token, showToast }) {
                     value={issueCertType}
                     onChange={(e) => {
                       setIssueCertType(e.target.value);
-                      if (e.target.value === 'presentation') {
+                      if (e.target.value === 'presentation' || e.target.value === 'submission') {
                         setIssueWorkload('10');
+                      } else if (e.target.value === 'workshop') {
+                        setIssueWorkload('4');
                       } else {
                         setIssueWorkload(selectedEventForManagement.workload_hours.toString());
                       }
                     }}
                     style={{ padding: '8px 12px', fontSize: '0.9rem' }}
                   >
-                    <option value="organization">Organização (Comissão)</option>
-                    <option value="presentation">Apresentação de Trabalho</option>
-                    <option value="guest">Convidado / Palestrante</option>
-                    <option value="participation">Participante Individual</option>
+                    <option value="participation">Participação Geral</option>
+                    <option value="organization_general">Organização (Geral)</option>
+                    <option value="organization_coordinator">Organização (Coordenador)</option>
+                    <option value="organization_technical">Organização (Técnico)</option>
+                    <option value="submission">Submissão de Trabalho</option>
+                    <option value="guest_speaker">Convidado (Palestrante)</option>
+                    <option value="guest_mediator">Convidado (Mediador)</option>
+                    <option value="workshop">Minicurso ou Oficina</option>
                   </select>
                 </div>
 
@@ -4259,7 +4585,7 @@ function AdminEventsView({ token, showToast }) {
                   />
                 </div>
 
-                {issueCertType === 'presentation' && (
+                {(issueCertType === 'presentation' || issueCertType === 'submission' || issueCertType === 'workshop') && (
                   <div className="form-group" style={{ marginBottom: '10px' }}>
                     <label className="form-label" style={{ fontSize: '0.85rem' }}>Título do Trabalho Apresentado *</label>
                     <input 
@@ -4356,7 +4682,7 @@ function AdminEventsView({ token, showToast }) {
                           {c.presentation_title && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Artigo: {c.presentation_title}</div>}
                         </td>
                         <td>
-                          <span className={`badge ${c.type === 'participation' ? 'badge-primary' : c.type === 'organization' ? 'badge-success' : c.type === 'presentation' ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.65rem' }}>
+                          <span className={`badge ${c.type === 'participation' ? 'badge-primary' : c.type && c.type.startsWith('organization') ? 'badge-success' : (c.type === 'presentation' || c.type === 'submission') ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: '0.65rem' }}>
                             {getCertTypeLabel(c.type)}
                           </span>
                         </td>
@@ -4391,7 +4717,7 @@ function AdminEventsView({ token, showToast }) {
         selectedEventForManagement={selectedEventForManagement}
         assignmentsList={assignmentsList}
         fetchAssignments={fetchAssignments}
-        evaluatorsPool={evaluatorsPool}
+        usersPool={systemUsers}
       />
     );
   };
@@ -4834,7 +5160,7 @@ function AdminAssignmentsView({
   selectedEventForManagement,
   assignmentsList,
   fetchAssignments,
-  evaluatorsPool
+  usersPool = []
 }) {
   const [selectedUser, setSelectedUser] = useState('');
   const [assignedRole, setAssignedRole] = useState('evaluator');
@@ -4845,11 +5171,15 @@ function AdminAssignmentsView({
   const handleCreateAssignment = async (e) => {
     e.preventDefault();
     if (!selectedUser || !assignedRole) {
-      showToast('Selecione o avaliador e o papel', 'danger');
+      showToast('Selecione o membro e o papel', 'danger');
       return;
     }
     if (assignedRole === 'coordinator' && !selectedAxis) {
       showToast('Selecione o eixo para o coordenador', 'danger');
+      return;
+    }
+    if ((assignedRole === 'organizer' || assignedRole === 'event_coordinator') && !selectedAxis) {
+      showToast('Selecione a tarefa / área de atuação', 'danger');
       return;
     }
 
@@ -4864,7 +5194,7 @@ function AdminAssignmentsView({
         body: JSON.stringify({
           user_id: selectedUser,
           role: assignedRole,
-          axis: assignedRole === 'coordinator' ? selectedAxis : null
+          axis: (assignedRole === 'coordinator' || assignedRole === 'organizer' || assignedRole === 'event_coordinator') ? selectedAxis : null
         })
       });
       const data = await res.json();
@@ -4906,6 +5236,8 @@ function AdminAssignmentsView({
 
   const coordinators = assignmentsList.filter(a => a.role === 'coordinator');
   const evaluators = assignmentsList.filter(a => a.role === 'evaluator');
+  const organizers = assignmentsList.filter(a => a.role === 'organizer');
+  const eventCoordinators = assignmentsList.filter(a => a.role === 'event_coordinator');
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
@@ -4914,33 +5246,42 @@ function AdminAssignmentsView({
         
         <form onSubmit={handleCreateAssignment}>
           <div className="form-group">
-            <label className="form-label">Selecionar Avaliador *</label>
+            <label className="form-label">Selecionar Membro *</label>
             <select 
               className="form-select" 
               required 
               value={selectedUser} 
               onChange={(e) => setSelectedUser(e.target.value)}
             >
-              <option value="">Selecione um avaliador cadastrado...</option>
-              {evaluatorsPool.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+              <option value="">Selecione um usuário cadastrado...</option>
+              {usersPool.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.email}) - {
+                    u.role === 'admin' ? 'Admin' : 
+                    u.role === 'moderator' ? 'Moderador' : 
+                    u.role === 'evaluator' ? 'Avaliador' : 
+                    'Participante'
+                  }
+                </option>
               ))}
             </select>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Papel na Comissão *</label>
+            <label className="form-label">Papel no Evento *</label>
             <select 
               className="form-select" 
               required 
               value={assignedRole} 
               onChange={(e) => {
                 setAssignedRole(e.target.value);
-                if (e.target.value !== 'coordinator') setSelectedAxis('');
+                setSelectedAxis('');
               }}
             >
-              <option value="evaluator">Avaliador (Geral)</option>
-              <option value="coordinator">Coordenador de Eixo</option>
+              <option value="evaluator">Avaliador Científico (Geral)</option>
+              <option value="coordinator">Coordenador de Eixo Temático</option>
+              <option value="organizer">Organizador do Evento</option>
+              <option value="event_coordinator">Coordenador de Área do Evento</option>
             </select>
           </div>
 
@@ -4961,6 +5302,27 @@ function AdminAssignmentsView({
             </div>
           )}
 
+          {(assignedRole === 'organizer' || assignedRole === 'event_coordinator') && (
+            <div className="form-group">
+              <label className="form-label">Tarefa / Área de Atuação *</label>
+              <select 
+                className="form-select" 
+                required={assignedRole === 'organizer' || assignedRole === 'event_coordinator'} 
+                value={selectedAxis} 
+                onChange={(e) => setSelectedAxis(e.target.value)}
+              >
+                <option value="">Selecione a tarefa...</option>
+                <option value="organização geral">Organização Geral</option>
+                <option value="logística">Logística</option>
+                <option value="técnica">Suporte Técnico</option>
+                <option value="publicidade">Publicidade / Marketing</option>
+                <option value="financeiro">Financeiro / Tesouraria</option>
+                <option value="secretaria">Secretaria</option>
+                <option value="outro">Outro / Geral</option>
+              </select>
+            </div>
+          )}
+
           <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={isAssigningUser}>
             {isAssigningUser ? 'Processando...' : 'Designar Membro'}
           </button>
@@ -4968,10 +5330,105 @@ function AdminAssignmentsView({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+        {/* Organizadores */}
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Eixos Designados</h3>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Organizadores do Evento</h3>
+          {organizers.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum organizador designado para este evento.</p>
+          ) : (
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Tarefa / Área</th>
+                    <th style={{ width: '120px', textAlign: 'center' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {organizers.map(org => (
+                    <tr key={org.id}>
+                      <td style={{ fontWeight: 600 }}>{org.user_name}</td>
+                      <td>{org.user_email}</td>
+                      <td style={{ color: 'var(--accent)', fontWeight: 600, textTransform: 'capitalize' }}>{org.axis}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assignmentToDeleteId === org.id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Confirmar?</span>
+                            <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveAssignment(org.id)}>Sim</button>
+                            <button type="button" className="btn btn-secondary" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setAssignmentToDeleteId(null)}>Não</button>
+                          </div>
+                        ) : (
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
+                            onClick={() => setAssignmentToDeleteId(org.id)}
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Coordenadores de Área */}
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Área</h3>
+          {eventCoordinators.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador de área designado para este evento.</p>
+          ) : (
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Área de Atuação</th>
+                    <th style={{ width: '120px', textAlign: 'center' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {eventCoordinators.map(ec => (
+                    <tr key={ec.id}>
+                      <td style={{ fontWeight: 600 }}>{ec.user_name}</td>
+                      <td>{ec.user_email}</td>
+                      <td style={{ color: 'var(--primary-light)', fontWeight: 600, textTransform: 'capitalize' }}>{ec.axis}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assignmentToDeleteId === ec.id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Confirmar?</span>
+                            <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveAssignment(ec.id)}>Sim</button>
+                            <button type="button" className="btn btn-secondary" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setAssignmentToDeleteId(null)}>Não</button>
+                          </div>
+                        ) : (
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }} 
+                            onClick={() => setAssignmentToDeleteId(ec.id)}
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Coordenadores de Eixos */}
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Eixos Temáticos</h3>
           {coordinators.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador designado para este evento.</p>
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador de eixo designado para este evento.</p>
           ) : (
             <div className="table-container">
               <table className="custom-table">
@@ -5014,8 +5471,9 @@ function AdminAssignmentsView({
           )}
         </div>
 
+        {/* Avaliadores Gerais */}
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Avaliadores Gerais Designados</h3>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Avaliadores Científicos Gerais</h3>
           {evaluators.length === 0 ? (
             <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum avaliador designado para este evento.</p>
           ) : (
@@ -5058,6 +5516,155 @@ function AdminAssignmentsView({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// COMPONENTE PARA GERENCIAMENTO DE USUÁRIOS E PAPÉIS (ADMIN)
+function AdminUsersView({ token, showToast }) {
+  const [users, setUsers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [updatingUserId, setUpdatingUserId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      } else {
+        showToast('Erro ao carregar usuários', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede ao buscar usuários', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, [token]);
+
+  const handleRoleChange = async (userId, newRole) => {
+    setUpdatingUserId(userId);
+    try {
+      const res = await fetch(`${API_URL}/api/users/${userId}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ role: newRole })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Função do usuário atualizada!');
+        // Update local state
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      } else {
+        showToast(data.error || 'Erro ao atualizar função', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao conectar ao servidor', 'danger');
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  const filteredUsers = users.filter(u => 
+    u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (u.cpf && u.cpf.includes(searchTerm))
+  );
+
+  return (
+    <div className="glass-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
+        <div>
+          <h2 style={{ fontSize: '1.5rem', color: 'var(--primary)', fontWeight: 800, margin: 0 }}>Gerenciamento de Usuários</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '4px' }}>
+            Pesquise usuários cadastrados e defina papéis como Moderadores (com permissão para criar eventos).
+          </p>
+        </div>
+        <div style={{ position: 'relative', width: '300px' }}>
+          <input 
+            type="text" 
+            placeholder="Pesquisar por nome, e-mail ou CPF..." 
+            className="form-input" 
+            style={{ paddingRight: '40px' }}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Carregando lista de usuários...</div>
+      ) : filteredUsers.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          Nenhum usuário cadastrado ou correspondente à pesquisa foi encontrado.
+        </div>
+      ) : (
+        <div className="table-container">
+          <table className="custom-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>E-mail</th>
+                <th>CPF</th>
+                <th>Papel Atual</th>
+                <th style={{ width: '220px', textAlign: 'center' }}>Alterar Privilégios</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredUsers.map(u => (
+                <tr key={u.id}>
+                  <td style={{ fontWeight: 600 }}>{u.name}</td>
+                  <td>{u.email}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{u.cpf || 'Não informado'}</td>
+                  <td>
+                    <span 
+                      className={`badge ${
+                        u.role === 'admin' ? 'badge-primary' : 
+                        u.role === 'moderator' ? 'badge-warning' : 
+                        u.role === 'evaluator' ? 'badge-success' : 
+                        'badge-outline'
+                      }`}
+                      style={{ textTransform: 'capitalize' }}
+                    >
+                      {u.role === 'admin' ? 'Administrador' : 
+                       u.role === 'moderator' ? 'Moderador' : 
+                       u.role === 'evaluator' ? 'Avaliador' : 
+                       'Participante'}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <select 
+                      className="form-select" 
+                      style={{ padding: '4px 8px', fontSize: '0.85rem', height: 'auto', display: 'inline-block', width: '180px' }}
+                      value={u.role}
+                      disabled={updatingUserId === u.id}
+                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                    >
+                      <option value="participant">Participante</option>
+                      <option value="evaluator">Avaliador Científico</option>
+                      <option value="moderator">Moderador (Criar Eventos)</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -6067,12 +6674,33 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [transmissionLink, setTransmissionLink] = useState('');
+  const [actAdditionalLinks, setActAdditionalLinks] = useState([]);
+  const [newActLinkLabel, setNewActLinkLabel] = useState('');
+  const [newActLinkUrl, setNewActLinkUrl] = useState('');
   
   // Guest list state for the new activity
   const [guests, setGuests] = useState([]);
   const [selectedGuestId, setSelectedGuestId] = useState('');
   const [editingActivityId, setEditingActivityId] = useState(null);
   const [activityToDeleteId, setActivityToDeleteId] = useState(null);
+
+  const handleAddActLink = () => {
+    if (!newActLinkLabel.trim() || !newActLinkUrl.trim()) {
+      showToast('Preencha o nome e a URL do link', 'warning');
+      return;
+    }
+    let url = newActLinkUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+    setActAdditionalLinks(prev => [...prev, { label: newActLinkLabel.trim(), url }]);
+    setNewActLinkLabel('');
+    setNewActLinkUrl('');
+  };
+
+  const handleRemoveActLink = (index) => {
+    setActAdditionalLinks(prev => prev.filter((_, i) => i !== index));
+  };
 
   useEffect(() => {
     if (!propEventId) {
@@ -6163,7 +6791,8 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
       location,
       description,
       guests,
-      transmission_link: transmissionLink
+      transmission_link: transmissionLink,
+      additional_links: actAdditionalLinks
     };
 
     try {
@@ -6197,6 +6826,9 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
         setLocation('');
         setDescription('');
         setTransmissionLink('');
+        setActAdditionalLinks([]);
+        setNewActLinkLabel('');
+        setNewActLinkUrl('');
         setGuests([]);
         setEditingActivityId(null);
         fetchActivities(selectedEventId);
@@ -6218,6 +6850,7 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
     setLocation(act.location || '');
     setDescription(act.description || '');
     setTransmissionLink(act.transmission_link || '');
+    setActAdditionalLinks(act.additional_links || []);
     setGuests(act.guests || []);
     document.getElementById('act-title')?.focus();
   };
@@ -6230,6 +6863,9 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
     setLocation('');
     setDescription('');
     setTransmissionLink('');
+    setActAdditionalLinks([]);
+    setNewActLinkLabel('');
+    setNewActLinkUrl('');
     setGuests([]);
   };
 
@@ -6342,6 +6978,54 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
               value={transmissionLink} 
               onChange={(e) => setTransmissionLink(e.target.value)} 
             />
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px', marginBottom: '15px' }}>
+            <label className="form-label" style={{ fontWeight: 700 }}>Outros Links / Recursos (Slides, Material, etc.)</label>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+              <input 
+                type="text" 
+                className="form-input" 
+                style={{ flex: 1 }}
+                placeholder="Nome do link (ex: Slides, Drive)" 
+                value={newActLinkLabel} 
+                onChange={(e) => setNewActLinkLabel(e.target.value)} 
+              />
+              <input 
+                type="text" 
+                className="form-input" 
+                style={{ flex: 2 }}
+                placeholder="URL (https://...)" 
+                value={newActLinkUrl} 
+                onChange={(e) => setNewActLinkUrl(e.target.value)} 
+              />
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleAddActLink}
+                style={{ whiteSpace: 'nowrap', padding: '0 15px' }}
+              >
+                + Add
+              </button>
+            </div>
+            {actAdditionalLinks.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--surface-secondary)', padding: '10px', borderRadius: 'var(--radius-sm)' }}>
+                {actAdditionalLinks.map((link, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', background: '#fff', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                    <div style={{ wordBreak: 'break-all' }}>
+                      <strong>{link.label || 'Link'}:</strong> <a href={link.url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary-light)', textDecoration: 'underline' }}>{link.url}</a>
+                    </div>
+                    <button 
+                      type="button" 
+                      style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '1.1rem', marginLeft: '10px' }} 
+                      onClick={() => handleRemoveActLink(idx)}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="form-group">
@@ -6474,6 +7158,16 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
                             <ExternalLink size={12} />
                             Transmissão
                           </a>
+                        </div>
+                      )}
+                      {act.additional_links && act.additional_links.length > 0 && (
+                        <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.8rem' }}>
+                          {act.additional_links.map((link, idx) => (
+                            <a key={idx} href={link.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', textDecoration: 'underline' }}>
+                              <ExternalLink size={10} />
+                              {link.label || 'Link'}
+                            </a>
+                          ))}
                         </div>
                       )}
                     </td>

@@ -23,7 +23,7 @@ const initPromise = new Promise((resolve, reject) => {
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             cpf TEXT UNIQUE NOT NULL,
-            role TEXT CHECK(role IN ('admin', 'evaluator', 'participant')) NOT NULL,
+            role TEXT CHECK(role IN ('admin', 'moderator', 'evaluator', 'participant')) NOT NULL,
             photo_url TEXT,
             minibio TEXT,
             contact TEXT,
@@ -63,6 +63,9 @@ const initPromise = new Promise((resolve, reject) => {
             registration_start_date TEXT,
             registration_end_date TEXT,
             supporters TEXT DEFAULT '[]',
+            additional_links TEXT DEFAULT '[]',
+            cert_bg_front_url TEXT,
+            cert_bg_back_url TEXT,
             created_at TEXT NOT NULL
           )
         `);
@@ -89,7 +92,11 @@ const initPromise = new Promise((resolve, reject) => {
           "ALTER TABLE users ADD COLUMN institution TEXT",
           "ALTER TABLE users ADD COLUMN position TEXT",
           "ALTER TABLE users ADD COLUMN lattes_link TEXT",
-          "ALTER TABLE users ADD COLUMN orcid TEXT"
+          "ALTER TABLE users ADD COLUMN orcid TEXT",
+          "ALTER TABLE events ADD COLUMN additional_links TEXT DEFAULT '[]'",
+          "ALTER TABLE activities ADD COLUMN additional_links TEXT DEFAULT '[]'",
+          "ALTER TABLE events ADD COLUMN cert_bg_front_url TEXT",
+          "ALTER TABLE events ADD COLUMN cert_bg_back_url TEXT"
         ];
         alterColumns.forEach(query => {
           db.run(query, (err) => {
@@ -111,6 +118,7 @@ const initPromise = new Promise((resolve, reject) => {
             description TEXT,
             guests TEXT, -- JSON string array of guest objects
             transmission_link TEXT,
+            additional_links TEXT DEFAULT '[]',
             created_at TEXT NOT NULL,
             FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE
           )
@@ -157,7 +165,7 @@ const initPromise = new Promise((resolve, reject) => {
             id TEXT PRIMARY KEY,
             event_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
-            role TEXT CHECK(role IN ('coordinator', 'evaluator')) NOT NULL,
+            role TEXT CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator')) NOT NULL,
             axis TEXT,
             FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -235,6 +243,68 @@ const initPromise = new Promise((resolve, reject) => {
               db.run("DROP TABLE certificates");
               db.run("ALTER TABLE certificates_dg_tmp RENAME TO certificates");
               console.log('Certificates unique constraint migration completed.');
+            });
+          }
+        });
+
+        // Migration to update CHECK constraint on users table to include moderator role
+        db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'", (err, row) => {
+          if (row && row.sql && !row.sql.includes('moderator')) {
+            console.log('Migrating users table for moderator role...');
+            db.serialize(() => {
+              db.run(`
+                CREATE TABLE IF NOT EXISTS users_dg_tmp (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  email TEXT UNIQUE NOT NULL,
+                  password_hash TEXT NOT NULL,
+                  cpf TEXT UNIQUE NOT NULL,
+                  role TEXT CHECK(role IN ('admin', 'moderator', 'evaluator', 'participant')) NOT NULL,
+                  photo_url TEXT,
+                  minibio TEXT,
+                  contact TEXT,
+                  institution TEXT,
+                  position TEXT,
+                  lattes_link TEXT,
+                  orcid TEXT,
+                  created_at TEXT NOT NULL
+                )
+              `);
+              db.run(`
+                INSERT OR IGNORE INTO users_dg_tmp (id, name, email, password_hash, cpf, role, photo_url, minibio, contact, institution, position, lattes_link, orcid, created_at)
+                SELECT id, name, email, password_hash, cpf, role, photo_url, minibio, contact, institution, position, lattes_link, orcid, created_at FROM users
+              `);
+              db.run("DROP TABLE users");
+              db.run("ALTER TABLE users_dg_tmp RENAME TO users");
+              console.log('users table migration completed.');
+            });
+          }
+        });
+
+        // Migration to update CHECK constraint on event_assignments table to include organizer and event_coordinator roles
+        db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_assignments'", (err, row) => {
+          if (row && row.sql && !row.sql.includes('organizer')) {
+            console.log('Migrating event_assignments table for new roles...');
+            db.serialize(() => {
+              db.run(`
+                CREATE TABLE IF NOT EXISTS event_assignments_dg_tmp (
+                  id TEXT PRIMARY KEY,
+                  event_id TEXT NOT NULL,
+                  user_id TEXT NOT NULL,
+                  role TEXT CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator')) NOT NULL,
+                  axis TEXT,
+                  FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+                  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                  UNIQUE(event_id, user_id, role, axis)
+                )
+              `);
+              db.run(`
+                INSERT OR IGNORE INTO event_assignments_dg_tmp (id, event_id, user_id, role, axis)
+                SELECT id, event_id, user_id, role, axis FROM event_assignments
+              `);
+              db.run("DROP TABLE event_assignments");
+              db.run("ALTER TABLE event_assignments_dg_tmp RENAME TO event_assignments");
+              console.log('event_assignments table migration completed.');
             });
           }
         });

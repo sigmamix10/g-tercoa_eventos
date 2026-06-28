@@ -159,6 +159,9 @@ O Nginx funcionará recebendo o tráfego externo e direcionando para os arquivos
        listen 80;
        server_name localhost 127.0.0.1;
 
+       # Limite máximo de upload (necessário para imagens de perfil, banners e PDFs de submissão)
+       client_max_body_size 50M;
+
        # Frontend (Arquivos estáticos compilados)
        location / {
            root /home/seu_usuario_wsl/g-tercoa_eventos/frontend/dist; # Substitua 'seu_usuario_wsl' pelo seu usuário Linux real

@@ -214,7 +214,7 @@ app.put('/api/auth/profile', authenticateToken, async (req, res) => {
 });
 
 // Lista de Pareceristas/Avaliadores para o Admin designar
-app.get('/api/users/evaluators', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.get('/api/users/evaluators', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const evaluators = await allQuery("SELECT id, name, email FROM users WHERE role = 'evaluator'");
     res.json(evaluators);
@@ -223,8 +223,8 @@ app.get('/api/users/evaluators', authenticateToken, requireRole(['admin']), asyn
     res.status(500).json({ error: 'Erro ao buscar avaliadores' });
   }
 });
-// Lista de Todos os Usuários Cadastrados no Sistema (Admin)
-app.get('/api/users', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Lista de Todos os Usuários Cadastrados no Sistema (Admin/Moderador)
+app.get('/api/users', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const users = await allQuery('SELECT id, name, email, cpf, role FROM users ORDER BY name ASC');
     res.json(users);
@@ -234,12 +234,35 @@ app.get('/api/users', authenticateToken, requireRole(['admin']), async (req, res
   }
 });
 
+// Atualizar papel de um usuário (Admin)
+app.put('/api/users/:id/role', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { role } = req.body;
+  const allowedRoles = ['admin', 'moderator', 'evaluator', 'participant'];
+
+  if (!allowedRoles.includes(role)) {
+    return res.status(400).json({ error: 'Papel inválido' });
+  }
+
+  try {
+    // Evitar que o próprio admin mude o próprio papel para não se trancar
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'Você não pode alterar seu próprio papel' });
+    }
+
+    await runQuery('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+    res.json({ message: 'Papel do usuário atualizado com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar papel do usuário' });
+  }
+});
+
 // ==========================================
 // 2. EVENTOS (EVENT BUILDER)
 // ==========================================
 
-// Criar Evento (Admin)
-app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Criar Evento (Admin/Moderador)
+app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const {
     name,
     slug,
@@ -265,7 +288,10 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
     cert_text_guest,
     registration_start_date,
     registration_end_date,
-    supporters
+    supporters,
+    additional_links,
+    cert_bg_front_url,
+    cert_bg_back_url
   } = req.body;
 
   if (!name || !slug || !type || !start_date || !end_date) {
@@ -277,6 +303,7 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
   const axesJSON = JSON.stringify(thematic_axes || []);
   const categoriesJSON = JSON.stringify(registration_categories || []);
   const supportersJSON = JSON.stringify(supporters || []);
+  const additionalLinksJSON = JSON.stringify(additional_links || []);
 
   try {
     const eventId = crypto.randomUUID();
@@ -286,8 +313,8 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
         thematic_axes, registration_categories, submission_rules, workload_hours, transmission_link,
         cert_border_color, cert_signature_name, cert_signature_role, cert_text_template,
         location, guests, submissions_enabled, cert_text_organization, cert_text_presentation, cert_text_guest,
-        registration_start_date, registration_end_date, supporters, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        registration_start_date, registration_end_date, supporters, additional_links, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       eventId,
       formattedSlug,
@@ -315,6 +342,9 @@ app.post('/api/events', authenticateToken, requireRole(['admin']), async (req, r
       registration_start_date || null,
       registration_end_date || null,
       supportersJSON,
+      additionalLinksJSON,
+      cert_bg_front_url || null,
+      cert_bg_back_url || null,
       new Date().toISOString()
     ]);
 
@@ -337,7 +367,8 @@ app.get('/api/events', async (req, res) => {
       ...e,
       thematic_axes: JSON.parse(e.thematic_axes || '[]'),
       registration_categories: JSON.parse(e.registration_categories || '[]'),
-      supporters: JSON.parse(e.supporters || '[]')
+      supporters: JSON.parse(e.supporters || '[]'),
+      additional_links: JSON.parse(e.additional_links || '[]')
     }));
     res.json(parsedEvents);
   } catch (err) {
@@ -357,6 +388,7 @@ app.get('/api/events/by-slug/:slug', async (req, res) => {
     event.registration_categories = JSON.parse(event.registration_categories || '[]');
     event.supporters = JSON.parse(event.supporters || '[]');
     event.guests = JSON.parse(event.guests || '[]');
+    event.additional_links = JSON.parse(event.additional_links || '[]');
 
     // Fetch organizers (coordinators) from assignments table
     const coordinators = await allQuery(`
@@ -374,8 +406,8 @@ app.get('/api/events/by-slug/:slug', async (req, res) => {
   }
 });
 
-// Editar Evento (Admin)
-app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Editar Evento (Admin/Moderador)
+app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const {
     name,
     slug,
@@ -401,13 +433,17 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
     cert_text_guest,
     registration_start_date,
     registration_end_date,
-    supporters
+    supporters,
+    additional_links,
+    cert_bg_front_url,
+    cert_bg_back_url
   } = req.body;
 
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
   const axesJSON = JSON.stringify(thematic_axes || []);
   const categoriesJSON = JSON.stringify(registration_categories || []);
   const supportersJSON = JSON.stringify(supporters || []);
+  const additionalLinksJSON = JSON.stringify(additional_links || []);
 
   try {
     await runQuery(`
@@ -416,7 +452,8 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
           thematic_axes = ?, registration_categories = ?, submission_rules = ?, workload_hours = ?, transmission_link = ?,
           cert_border_color = ?, cert_signature_name = ?, cert_signature_role = ?, cert_text_template = ?,
           location = ?, guests = ?, submissions_enabled = ?, cert_text_organization = ?, cert_text_presentation = ?, cert_text_guest = ?,
-          registration_start_date = ?, registration_end_date = ?, supporters = ?
+          registration_start_date = ?, registration_end_date = ?, supporters = ?, additional_links = ?,
+          cert_bg_front_url = ?, cert_bg_back_url = ?
       WHERE id = ?
     `, [
       name,
@@ -444,6 +481,9 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
       registration_start_date || null,
       registration_end_date || null,
       supportersJSON,
+      additionalLinksJSON,
+      cert_bg_front_url || null,
+      cert_bg_back_url || null,
       req.params.id
     ]);
 
@@ -454,7 +494,7 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin']), async (req
   }
 });
 
-app.delete('/api/events/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.delete('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const eventId = req.params.id;
   const { reason } = req.body;
   try {
@@ -636,8 +676,8 @@ app.post('/api/events/:id/register', authenticateToken, async (req, res) => {
   }
 });
 
-// Listar Inscritos de um Evento (Admin)
-app.get('/api/events/:id/registrations', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Listar Inscritos de um Evento (Admin/Moderador)
+app.get('/api/events/:id/registrations', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const registrations = await allQuery(`
       SELECT r.*, u.name as user_name, u.email as user_email, u.cpf as user_cpf 
@@ -654,8 +694,8 @@ app.get('/api/events/:id/registrations', authenticateToken, requireRole(['admin'
   }
 });
 
-// Exportar Inscritos em CSV (Admin)
-app.get('/api/events/:id/registrations/export', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Exportar Inscritos em CSV (Admin/Moderador)
+app.get('/api/events/:id/registrations/export', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const registrations = await allQuery(`
       SELECT r.*, u.name as user_name, u.email as user_email, u.cpf as user_cpf 
@@ -713,8 +753,8 @@ app.get('/api/registrations/my-events', authenticateToken, async (req, res) => {
   }
 });
 
-// Realizar Check-in (Admin)
-app.post('/api/registrations/:id/checkin', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Realizar Check-in (Admin/Moderador)
+app.post('/api/registrations/:id/checkin', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const { status } = req.body; // status: 1 (checked-in) ou 0 (remover check-in)
   const checkedIn = status === undefined ? 1 : parseInt(status);
   const checkedInAt = checkedIn ? new Date().toISOString() : null;
@@ -926,7 +966,7 @@ app.post('/api/events/:id/submissions', authenticateToken, upload.single('file')
 });
 
 // Listar Trabalhos de um Evento (Admin)
-app.get('/api/events/:id/submissions', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.get('/api/events/:id/submissions', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const submissions = await allQuery(`
       SELECT s.*, u.name as submitter_name, u.email as submitter_email, rev.name as reviewer_name
@@ -948,8 +988,8 @@ app.get('/api/events/:id/submissions', authenticateToken, requireRole(['admin'])
 // EVENT ASSIGNMENTS (COORDINATORS & EVALUATORS)
 // ==========================================
 
-// Listar coordenadores e avaliadores de um Evento (Admin)
-app.get('/api/events/:id/assignments', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Listar coordenadores e avaliadores de um Evento (Admin/Moderador)
+app.get('/api/events/:id/assignments', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const assignments = await allQuery(`
       SELECT ea.id, ea.user_id, ea.role, ea.axis, u.name as user_name, u.email as user_email
@@ -966,8 +1006,8 @@ app.get('/api/events/:id/assignments', authenticateToken, requireRole(['admin'])
   }
 });
 
-// Designar coordenador ou avaliador para um Evento (Admin)
-app.post('/api/events/:id/assignments', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Designar coordenador, avaliador, organizador ou coordenador de área para um Evento (Admin/Moderador)
+app.post('/api/events/:id/assignments', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const { user_id, role, axis } = req.body;
   const eventId = req.params.id;
 
@@ -979,18 +1019,22 @@ app.post('/api/events/:id/assignments', authenticateToken, requireRole(['admin']
     return res.status(400).json({ error: 'O coordenador precisa de um eixo temático' });
   }
 
+  if ((role === 'organizer' || role === 'event_coordinator') && !axis) {
+    return res.status(400).json({ error: 'É necessário definir a tarefa ou área de atuação' });
+  }
+
   try {
-    // Check if user is an evaluator in the system
+    // Check if user exists in the system
     const user = await getQuery("SELECT role FROM users WHERE id = ?", [user_id]);
-    if (!user || (user.role !== 'evaluator' && user.role !== 'admin')) {
-      return res.status(400).json({ error: 'Apenas usuários com perfil de Avaliador podem ser designados para a comissão.' });
+    if (!user) {
+      return res.status(400).json({ error: 'Usuário não encontrado.' });
     }
 
     const assignmentId = crypto.randomUUID();
     await runQuery(`
       INSERT INTO event_assignments (id, event_id, user_id, role, axis)
       VALUES (?, ?, ?, ?, ?)
-    `, [assignmentId, eventId, user_id, role, role === 'coordinator' ? axis : null]);
+    `, [assignmentId, eventId, user_id, role, (role === 'coordinator' || role === 'organizer' || role === 'event_coordinator') ? axis : null]);
 
     res.status(201).json({ message: 'Designação realizada com sucesso!' });
   } catch (err) {
@@ -1002,8 +1046,8 @@ app.post('/api/events/:id/assignments', authenticateToken, requireRole(['admin']
   }
 });
 
-// Remover designação (Admin)
-app.delete('/api/events/:eventId/assignments/:assignmentId', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Remover designação (Admin/Moderador)
+app.delete('/api/events/:eventId/assignments/:assignmentId', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     await runQuery('DELETE FROM event_assignments WHERE id = ? AND event_id = ?', [req.params.assignmentId, req.params.eventId]);
     res.json({ message: 'Designação removida com sucesso!' });
@@ -1018,10 +1062,10 @@ app.delete('/api/events/:eventId/assignments/:assignmentId', authenticateToken, 
 // ==========================================
 
 // Listar submissões do eixo do Coordenador logado (Avaliação às cegas - sem expor autor)
-app.get('/api/coordination/submissions', authenticateToken, requireRole(['evaluator', 'admin']), async (req, res) => {
+app.get('/api/coordination/submissions', authenticateToken, requireRole(['evaluator', 'admin', 'moderator']), async (req, res) => {
   try {
     let submissions;
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'moderator') {
       // Admins can see all submissions
       submissions = await allQuery(`
         SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.reviewer_id, s.review_comments, s.created_at, e.name as event_name, rev.name as reviewer_name
@@ -1179,8 +1223,8 @@ app.get('/api/submissions/my-submissions', authenticateToken, async (req, res) =
   }
 });
 
-// Alocar Avaliador a uma Submissão (Admin)
-app.post('/api/submissions/:id/assign', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Alocar avaliador para submissão (Admin/Moderador)
+app.post('/api/submissions/:id/assign', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const { reviewer_id } = req.body;
 
   if (!reviewer_id) {
@@ -1248,7 +1292,7 @@ app.get('/api/certificates/user', authenticateToken, async (req, res) => {
 });
 
 // Emitir Certificados para os Credenciados do Evento (Admin)
-app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const eventId = req.params.id;
 
   try {
@@ -1283,7 +1327,7 @@ app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole
 });
 
 // Emitir Certificado Individual/Customizado (Admin)
-app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const eventId = req.params.id;
   const { user_email, type, workload_hours, presentation_title } = req.body;
 
@@ -1291,7 +1335,20 @@ app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['
     return res.status(400).json({ error: 'E-mail do usuário e tipo do certificado são obrigatórios' });
   }
 
-  const selectedType = ['participation', 'organization', 'presentation', 'guest'].includes(type) ? type : 'participation';
+  const allowedTypes = [
+    'participation', 
+    'organization', 
+    'presentation', 
+    'guest', 
+    'organization_general', 
+    'organization_coordinator', 
+    'organization_technical', 
+    'submission', 
+    'guest_speaker', 
+    'guest_mediator', 
+    'workshop'
+  ];
+  const selectedType = allowedTypes.includes(type) ? type : 'participation';
 
   try {
     // 1. Get user details
@@ -1329,7 +1386,7 @@ app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['
 });
 
 // Listar todos os certificados emitidos de um Evento (Admin)
-app.get('/api/events/:id/certificates', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.get('/api/events/:id/certificates', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const certs = await allQuery(`
       SELECT c.*, u.name as user_name, u.email as user_email
@@ -1351,7 +1408,7 @@ app.get('/api/certificates/verify/:code', async (req, res) => {
 
   try {
     const cert = await getQuery(`
-      SELECT c.verification_code, c.workload_hours, c.created_at as issue_date,
+      SELECT c.verification_code, c.workload_hours, c.created_at as issue_date, c.type,
              u.name as user_name, u.cpf as user_cpf,
              e.name as event_name, e.start_date, e.end_date
       FROM certificates c
@@ -1380,6 +1437,7 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
              e.name as event_name, e.start_date, e.end_date, e.type as event_type,
              e.cert_border_color, e.cert_signature_name, e.cert_signature_role, e.cert_text_template,
              e.cert_text_organization, e.cert_text_presentation, e.cert_text_guest,
+             e.cert_bg_front_url, e.cert_bg_back_url,
              c.user_id as cert_user_id
       FROM certificates c
       JOIN users u ON c.user_id = u.id
@@ -1408,29 +1466,34 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
     const primaryColor = cert.cert_border_color || '#1A365D'; // Custom border / primary theme color
     const secondaryColor = '#D69E2E'; // Gold accents
 
-    // 1. Draw elegant double borders
-    doc.rect(20, 20, 802, 555).lineWidth(3).stroke(primaryColor);
-    doc.rect(26, 26, 790, 543).lineWidth(1).stroke(secondaryColor);
-
-    // 2. Dynamic event type logo / header text
-    doc.fillColor(primaryColor)
-       .font('Helvetica-Bold')
-       .fontSize(28)
-       .text('G-TERCOA', 0, 70, { align: 'center' });
-
-    doc.fillColor('#4A5568')
-       .font('Helvetica')
-       .fontSize(12)
-       .text('Grupo de Estudos e Pesquisa - Educação Matemática e Pedagogia', 0, 105, { align: 'center' });
-
-    // Golden divisor line
-    doc.moveTo(250, 125).lineTo(592, 125).lineWidth(1.5).stroke(secondaryColor);
-
-    // Main Certificate title
-    doc.fillColor(primaryColor)
-       .font('Helvetica-Bold')
-       .fontSize(36)
-       .text('CERTIFICADO', 0, 150, { align: 'center' });
+     const localBgFront = cert.cert_bg_front_url ? path.join(__dirname, cert.cert_bg_front_url.replace(/^\//, '')) : null;
+     const localBgBack = cert.cert_bg_back_url ? path.join(__dirname, cert.cert_bg_back_url.replace(/^\//, '')) : null;
+ 
+     if (localBgFront && fs.existsSync(localBgFront)) {
+       // Draw background PNG image spanning A4 landscape
+       doc.image(localBgFront, 0, 0, { width: 842, height: 595 });
+     } else {
+       // Draw default borders & headers
+       doc.rect(20, 20, 802, 555).lineWidth(3).stroke(primaryColor);
+       doc.rect(26, 26, 790, 543).lineWidth(1).stroke(secondaryColor);
+ 
+       doc.fillColor(primaryColor)
+          .font('Helvetica-Bold')
+          .fontSize(28)
+          .text('G-TERCOA', 0, 70, { align: 'center' });
+ 
+       doc.fillColor('#4A5568')
+          .font('Helvetica')
+          .fontSize(12)
+          .text('Grupo de Estudos e Pesquisa - Educação Matemática e Pedagogia', 0, 105, { align: 'center' });
+ 
+       doc.moveTo(250, 125).lineTo(592, 125).lineWidth(1.5).stroke(secondaryColor);
+ 
+       doc.fillColor(primaryColor)
+          .font('Helvetica-Bold')
+          .fontSize(36)
+          .text('CERTIFICADO', 0, 150, { align: 'center' });
+     }
 
     // Body Text
     const startObj = parseLocalDate(cert.start_date);
@@ -1443,12 +1506,20 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
     let template = '';
     const certType = cert.cert_type || 'participation';
 
-    if (certType === 'organization') {
+    if (certType === 'organization' || certType === 'organization_general') {
       template = cert.cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.';
-    } else if (certType === 'presentation') {
+    } else if (certType === 'organization_coordinator') {
+      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, na função de Coordenador(a), com carga horária total de {carga_horaria} horas.';
+    } else if (certType === 'organization_technical') {
+      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, atuando na Equipe Técnica, com carga horária total de {carga_horaria} horas.';
+    } else if (certType === 'presentation' || certType === 'submission') {
       template = cert.cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.';
-    } else if (certType === 'guest') {
+    } else if (certType === 'guest' || certType === 'guest_speaker') {
       template = cert.cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.';
+    } else if (certType === 'guest_mediator') {
+      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como Mediador(a) convidado(a) no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.';
+    } else if (certType === 'workshop') {
+      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou do Minicurso/Oficina intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
     } else {
       template = cert.cert_text_template || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
     }
@@ -1532,6 +1603,12 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
        .fillColor('#718096')
        .text('Verifique a autenticidade deste documento no portal.', 48, 530);
 
+    // 4. If back background image exists, draw it on page 2 (verso)
+    if (localBgBack && fs.existsSync(localBgBack)) {
+      doc.addPage({ layout: 'landscape', size: 'A4', margin: 0 });
+      doc.image(localBgBack, 0, 0, { width: 842, height: 595 });
+    }
+
     doc.end();
   } catch (err) {
     console.error(err);
@@ -1549,7 +1626,8 @@ app.get('/api/events/:id/activities', async (req, res) => {
     const activities = await allQuery('SELECT * FROM activities WHERE event_id = ? ORDER BY start_time ASC', [req.params.id]);
     const parsedActivities = activities.map(act => ({
       ...act,
-      guests: JSON.parse(act.guests || '[]')
+      guests: JSON.parse(act.guests || '[]'),
+      additional_links: JSON.parse(act.additional_links || '[]')
     }));
     res.json(parsedActivities);
   } catch (err) {
@@ -1559,8 +1637,8 @@ app.get('/api/events/:id/activities', async (req, res) => {
 });
 
 // Cadastrar Atividade (Admin)
-app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { title, type, start_time, end_time, location, description, guests, transmission_link } = req.body;
+app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
+  const { title, type, start_time, end_time, location, description, guests, transmission_link, additional_links } = req.body;
 
   if (!title || !type || !start_time || !end_time) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
@@ -1569,8 +1647,8 @@ app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin'])
   try {
     const actId = crypto.randomUUID();
     await runQuery(`
-      INSERT INTO activities (id, event_id, title, type, start_time, end_time, location, description, guests, transmission_link, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO activities (id, event_id, title, type, start_time, end_time, location, description, guests, transmission_link, additional_links, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       actId,
       req.params.id,
@@ -1582,6 +1660,7 @@ app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin'])
       description || '',
       JSON.stringify(guests || []),
       transmission_link || '',
+      JSON.stringify(additional_links || []),
       new Date().toISOString()
     ]);
 
@@ -1593,8 +1672,8 @@ app.post('/api/events/:id/activities', authenticateToken, requireRole(['admin'])
 });
 
 // Editar Atividade (Admin)
-app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { title, type, start_time, end_time, location, description, guests, transmission_link } = req.body;
+app.put('/api/activities/:id', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
+  const { title, type, start_time, end_time, location, description, guests, transmission_link, additional_links } = req.body;
 
   if (!title || !type || !start_time || !end_time) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
@@ -1603,7 +1682,7 @@ app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async 
   try {
     await runQuery(`
       UPDATE activities 
-      SET title = ?, type = ?, start_time = ?, end_time = ?, location = ?, description = ?, guests = ?, transmission_link = ?
+      SET title = ?, type = ?, start_time = ?, end_time = ?, location = ?, description = ?, guests = ?, transmission_link = ?, additional_links = ?
       WHERE id = ?
     `, [
       title,
@@ -1614,6 +1693,7 @@ app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async 
       description || '',
       JSON.stringify(guests || []),
       transmission_link || '',
+      JSON.stringify(additional_links || []),
       req.params.id
     ]);
 
@@ -1625,7 +1705,7 @@ app.put('/api/activities/:id', authenticateToken, requireRole(['admin']), async 
 });
 
 // Remover Atividade (Admin)
-app.delete('/api/activities/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.delete('/api/activities/:id', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     await runQuery('DELETE FROM activities WHERE id = ?', [req.params.id]);
     res.json({ message: 'Atividade excluída com sucesso!' });
@@ -1686,7 +1766,7 @@ app.get('/api/events/:id/my-frequency', authenticateToken, async (req, res) => {
 });
 
 // Listar presenças em uma atividade (Admin)
-app.get('/api/activities/:activityId/presences', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.get('/api/activities/:activityId/presences', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const presences = await allQuery(`
       SELECT ap.id, ap.user_id, ap.created_at, u.name as user_name, u.email as user_email
@@ -1702,7 +1782,7 @@ app.get('/api/activities/:activityId/presences', authenticateToken, requireRole(
 });
 
 // Realizar ou remover check-in de atividade (Admin)
-app.post('/api/activities/:activityId/checkin', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.post('/api/activities/:activityId/checkin', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const { user_id, status } = req.body; // status: 1 para presente, 0 para ausente
   const activityId = req.params.activityId;
   const isPresent = status === undefined ? 1 : parseInt(status);
@@ -1730,7 +1810,7 @@ app.post('/api/activities/:activityId/checkin', authenticateToken, requireRole([
 });
 
 // Credenciamento Kiosk / QR para atividade (Admin)
-app.post('/api/activities/:activityId/checkin-kiosk', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.post('/api/activities/:activityId/checkin-kiosk', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const { identifier } = req.body; // registration_id ou CPF
   const activityId = req.params.activityId;
 
