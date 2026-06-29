@@ -8,14 +8,14 @@ async function runTests() {
   try {
     // Test 1: Verify Default Administrator was Seeded
     console.log('Test 1: Verifying default admin seed...');
-    const admin = await getQuery('SELECT * FROM users WHERE email = ?', ['admin@gtercoa.org']);
+    const admin = await getQuery('SELECT * FROM users WHERE email = ?', ['tercoa.monitoria@gmail.com']);
     assert.ok(admin, 'Admin should exist in the database');
     assert.strictEqual(admin.role, 'admin', 'Admin user should have admin role');
     assert.strictEqual(admin.cpf, '000.000.000-00', 'Admin user should have default CPF');
     
     // Verify password hash
-    const isPasswordCorrect = await bcrypt.compare('admin', admin.password_hash);
-    assert.ok(isPasswordCorrect, 'Admin password hash should match password "admin"');
+    const isPasswordCorrect = await bcrypt.compare('G-tercoaufc@2024', admin.password_hash);
+    assert.ok(isPasswordCorrect, 'Admin password hash should match password "G-tercoaufc@2024"');
     console.log('✓ Test 1 Passed: Default administrator exists and password hashes match.');
 
     // Test 2: Insert and Retrieve an Event (Event Builder simulation)

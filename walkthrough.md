@@ -256,8 +256,15 @@ A separação das abas foi verificada no dashboard do administrador:
 
    ![Aba de Programação](C:/Users/profr/.gemini/antigravity-ide/brain/53161561-0d59-44a2-931c-1a921af30537/programacao_tab_1782420477936.png)
 
+---
 
+## Parte 11: Correção na Criação de Eventos (Mapeamento SQL e WSL Sync)
 
-
-
-
+### Mudanças Realizadas
+* **[MODIFY] [index.js](file:///d:/g-tercoa_eventos/backend/index.js)**:
+  * Corrigida a consulta SQL `INSERT INTO events` no endpoint de criação de eventos (`POST /api/events`). O mapeamento anterior continha um desalinhamento entre o número de colunas (28 colunas no cabeçalho) e o número de parâmetros fornecidos no array (30 valores, incluindo os novos campos `cert_bg_front_url` e `cert_bg_back_url`).
+  * Adicionadas as colunas ausentes `cert_bg_front_url` e `cert_bg_back_url` à lista do `INSERT` e adicionados mais dois placeholders `?` para coincidir com os 30 parâmetros fornecidos.
+* **[MODIFY] [test_db.js](file:///d:/g-tercoa_eventos/backend/test_db.js)**:
+  * Sincronizadas as credenciais do admin nos testes de integração do banco de dados de `admin@gtercoa.org` (com senha `admin`) para `tercoa.monitoria@gmail.com` (com senha `G-tercoaufc@2024`), correspondendo aos valores reais semeados por padrão no arquivo `db.js`.
+* **Sincronização com WSL**:
+  * Os arquivos alterados foram copiados para o sistema de arquivos nativo do WSL Ubuntu (`~/g-tercoa_eventos/backend/`) e o serviço no PM2 (`gtercoa-backend`) foi reiniciado para aplicar as correções no banco de dados MySQL externo.

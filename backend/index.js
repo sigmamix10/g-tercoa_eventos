@@ -313,8 +313,9 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
         thematic_axes, registration_categories, submission_rules, workload_hours, transmission_link,
         cert_border_color, cert_signature_name, cert_signature_role, cert_text_template,
         location, guests, submissions_enabled, cert_text_organization, cert_text_presentation, cert_text_guest,
-        registration_start_date, registration_end_date, supporters, additional_links, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        registration_start_date, registration_end_date, supporters, additional_links,
+        cert_bg_front_url, cert_bg_back_url, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       eventId,
       formattedSlug,
