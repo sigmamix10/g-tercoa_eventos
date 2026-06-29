@@ -570,8 +570,9 @@ run_as_user npm run build
 echo -e "\n${YELLOW}[5/7] Configurando o Servidor Web Nginx...${NC}"
 
 NGINX_CONF="/etc/nginx/sites-available/g-tercoa-eventos"
+TEMP_NGINX=$(mktemp)
 
-run_as_root bash -c "cat <<EOT > $NGINX_CONF
+cat <<EOT > "$TEMP_NGINX"
 server {
     listen $HTTP_PORT;
     server_name $SERVER_NAME;
@@ -593,6 +594,8 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_cache_bypass \$http_upgrade;
     }
 
@@ -600,10 +603,12 @@ server {
     location /uploads/ {
         alias $TARGET_DIR/backend/uploads/;
         expires 7d;
-        add_header Cache-Control \"public, no-transform\";
+        add_header Cache-Control "public, no-transform";
     }
 }
-EOT"
+EOT
+
+run_as_root mv "$TEMP_NGINX" "$NGINX_CONF"
 
 # Habilitar configuração no Nginx
 echo -e "${YELLOW}Ativando a nova configuração no Nginx...${NC}"
