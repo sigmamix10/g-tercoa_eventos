@@ -86,7 +86,7 @@ else
     pm2 status | grep -E "gtercoa-backend|index" &> /dev/null
     if [ $? -eq 0 ]; then
         # Descobre o nome em execução (seja gtercoa-backend ou index)
-        local app_name="gtercoa-backend"
+        app_name="gtercoa-backend"
         pm2 status | grep "index" &> /dev/null && app_name="index"
         
         pm2 restart "$app_name"

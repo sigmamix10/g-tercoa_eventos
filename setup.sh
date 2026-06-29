@@ -347,6 +347,37 @@ echo -e "\n${YELLOW}[1/7] Instalando utilitários do sistema Debian...${NC}"
 run_as_root apt update
 run_as_root apt install -y curl git nginx sqlite3 build-essential sudo
 
+# Instalar e configurar MariaDB local se for selecionado MySQL no localhost/127.0.0.1
+if [ "$DB_TYPE" = "mysql" ] && { [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; }; then
+    echo -e "${YELLOW}Banco de dados MySQL/MariaDB local detectado como alvo.${NC}"
+    echo -e "${YELLOW}Instalando MariaDB Server...${NC}"
+    run_as_root apt install -y mariadb-server
+    
+    echo -e "${YELLOW}Configurando e iniciando serviço MariaDB...${NC}"
+    run_as_root systemctl start mariadb || run_as_root systemctl start mysql
+    run_as_root systemctl enable mariadb || run_as_root systemctl enable mysql
+    
+    echo -e "${YELLOW}Configurando banco de dados e privilégios de acesso...${NC}"
+    # Criar banco de dados se não existir
+    run_as_root mysql -e "CREATE DATABASE IF NOT EXISTS \`$DB_DATABASE\`;"
+    
+    if [ "$DB_USER" != "root" ]; then
+        # Criar usuário específico e dar permissões
+        run_as_root mysql -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASSWORD';"
+        run_as_root mysql -e "GRANT ALL PRIVILEGES ON \`$DB_DATABASE\`.* TO '$DB_USER'@'localhost';"
+        run_as_root mysql -e "FLUSH PRIVILEGES;"
+        echo -e "${GREEN}Usuário do banco de dados '$DB_USER' criado e configurado com sucesso.${NC}"
+    else
+        # Se for root e houver senha, configurar autenticação nativa por senha para conexões do Node.js
+        if [ -n "$DB_PASSWORD" ]; then
+            run_as_root mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('$DB_PASSWORD');" 2>/dev/null || \
+            run_as_root mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_PASSWORD';"
+            run_as_root mysql -e "FLUSH PRIVILEGES;"
+            echo -e "${GREEN}Autenticação de senha para o usuário 'root' configurada.${NC}"
+        fi
+    fi
+fi
+
 # Criar o usuário de destino se ele não existir
 if [ "$SYSTEM_USER" != "root" ]; then
     if ! id "$SYSTEM_USER" &>/dev/null; then
@@ -616,7 +647,9 @@ if [ "$SYSTEM_USER" != "root" ]; then
 fi
 run_as_root chown -R "$SYSTEM_USER:www-data" "$TARGET_DIR"
 run_as_root chmod -R 775 "$TARGET_DIR"
-run_as_root chmod 664 "$TARGET_DIR/backend/database.db"
+if [ "$DB_TYPE" = "sqlite" ] && [ -f "$TARGET_DIR/backend/database.db" ]; then
+    run_as_root chmod 664 "$TARGET_DIR/backend/database.db"
+fi
 
 # Habilitar Certbot SSL se solicitado
 if [ "$INSTALL_SSL" = true ]; then

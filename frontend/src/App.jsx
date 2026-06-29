@@ -1680,7 +1680,7 @@ function ParticipantRegistrationCard({ reg, token, onSelectLive, onSelectWallet,
 
   const fetchFrequency = async () => {
     try {
-      const res = await fetch(`http://localhost:5000/api/events/${reg.event_id}/my-frequency`, {
+      const res = await fetch(`${API_URL}/api/events/${reg.event_id}/my-frequency`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
