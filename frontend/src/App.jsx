@@ -2221,11 +2221,42 @@ function ParticipantSubmissionsView({ token }) {
                   </td>
                   <td>{getStatusBadge(sub.status)}</td>
                   <td>
-                    {sub.review_comments ? (
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sub.review_comments}</span>
-                    ) : (
-                      <span style={{ fontStyle: 'italic', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Sem comentários adicionais.</span>
-                    )}
+                    <div>
+                      {sub.review_comments ? (
+                        <div style={{ marginBottom: '8px' }}>
+                          <strong>Coordenação:</strong>{' '}
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sub.review_comments}</span>
+                        </div>
+                      ) : (
+                        <div style={{ fontStyle: 'italic', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '8px' }}>Sem comentários adicionais da coordenação.</div>
+                      )}
+                      
+                      {/* Pareceres Técnicos Anônimos */}
+                      {((sub.reviewer_status && sub.reviewer_status !== 'under_review') || 
+                        (sub.reviewer_2_status && sub.reviewer_2_status !== 'under_review')) && (
+                        <div style={{ fontSize: '0.78rem', background: 'var(--surface-secondary)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border)', marginTop: '4px' }}>
+                          <div style={{ fontWeight: '600', color: 'var(--primary)', marginBottom: '4px' }}>Pareceres Acadêmicos (Duplo-Cego):</div>
+                          {sub.reviewer_status && sub.reviewer_status !== 'under_review' && (
+                            <div style={{ marginBottom: '4px' }}>
+                              <strong style={{color:'var(--text-muted)'}}>Revisor 1:</strong>{' '}
+                              <span className={`badge ${sub.reviewer_status === 'accepted' ? 'badge-success' : sub.reviewer_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`} style={{ padding: '1px 4px', fontSize: '0.65rem' }}>
+                                {sub.reviewer_status === 'accepted' ? 'Aceito' : sub.reviewer_status === 'accepted_with_remarks' ? 'Aceito com Ressalvas' : 'Rejeitado'}
+                              </span>
+                              {sub.reviewer_comments && <div style={{ fontStyle: 'italic', marginLeft: '8px', color: '#4a5568' }}>"{sub.reviewer_comments}"</div>}
+                            </div>
+                          )}
+                          {sub.reviewer_2_status && sub.reviewer_2_status !== 'under_review' && (
+                            <div style={{ borderTop: '1px dotted var(--border)', paddingTop: '4px', marginTop: '4px' }}>
+                              <strong style={{color:'var(--text-muted)'}}>Revisor 2:</strong>{' '}
+                              <span className={`badge ${sub.reviewer_2_status === 'accepted' ? 'badge-success' : sub.reviewer_2_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`} style={{ padding: '1px 4px', fontSize: '0.65rem' }}>
+                                {sub.reviewer_2_status === 'accepted' ? 'Aceito' : sub.reviewer_2_status === 'accepted_with_remarks' ? 'Aceito com Ressalvas' : 'Rejeitado'}
+                              </span>
+                              {sub.reviewer_2_comments && <div style={{ fontStyle: 'italic', marginLeft: '8px', color: '#4a5568' }}>"{sub.reviewer_2_comments}"</div>}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -2419,6 +2450,7 @@ function EvaluatorReviewsView({ token, showToast }) {
             <div>
               <div><strong>Evento:</strong> {selectedSub.event_name}</div>
               <div><strong>Eixo Temático:</strong> {selectedSub.thematic_axis}</div>
+              <div><strong>Função Designada:</strong> <span style={{ fontWeight: 'bold', color: 'var(--primary)' }}>Avaliador {selectedSub.reviewer_slot}</span> (Duplo-Cego)</div>
             </div>
             <div>
               <div>
@@ -2477,8 +2509,9 @@ function EvaluatorReviewsView({ token, showToast }) {
                 <th>Evento</th>
                 <th>Título</th>
                 <th>Eixo Temático</th>
+                <th>Função</th>
                 <th>Data de Envio</th>
-                <th>Status Atual</th>
+                <th>Status do Parecer</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -2488,11 +2521,12 @@ function EvaluatorReviewsView({ token, showToast }) {
                   <td>{sub.event_name}</td>
                   <td style={{ fontWeight: 600 }}>{sub.title}</td>
                   <td>{sub.thematic_axis}</td>
+                  <td style={{ fontWeight: 'bold', color: 'var(--primary)' }}>Avaliador {sub.reviewer_slot}</td>
                   <td>{new Date(sub.created_at).toLocaleDateString('pt-BR')}</td>
                   <td>
                     <span className={`badge ${sub.status === 'under_review' ? 'badge-warning' : sub.status === 'accepted' ? 'badge-success' : sub.status === 'rejected' ? 'badge-danger' : 'badge-primary'
                       }`}>
-                      {sub.status === 'under_review' ? 'Sob Avaliação' : sub.status}
+                      {sub.status === 'under_review' ? 'Sob Avaliação' : sub.status === 'accepted' ? 'Aceito' : sub.status === 'accepted_with_remarks' ? 'Aceito com Ressalvas' : sub.status === 'rejected' ? 'Rejeitado' : sub.status}
                     </span>
                   </td>
                   <td>
@@ -2521,6 +2555,7 @@ function CoordinatorSubmissionsView({ token, showToast }) {
   // Assign reviewer modal state
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedReviewerId, setSelectedReviewerId] = useState('');
+  const [activeSlot, setActiveSlot] = useState(1);
   const [isAssigning, setIsAssigning] = useState(false);
 
   // Final decision form state
@@ -2566,19 +2601,16 @@ function CoordinatorSubmissionsView({ token, showToast }) {
     }
   };
 
-  const openAssignModal = (sub) => {
+  const openAssignModal = (sub, slot) => {
     setSelectedSub(sub);
-    setSelectedReviewerId(sub.reviewer_id || '');
+    setActiveSlot(slot);
+    setSelectedReviewerId((slot === 2 ? sub.reviewer_2_id : sub.reviewer_id) || '');
     fetchEventEvaluators(sub.event_id);
     setShowAssignModal(true);
   };
 
   const handleAssignReviewer = async (e) => {
     e.preventDefault();
-    if (!selectedReviewerId) {
-      showToast('Selecione um avaliador', 'danger');
-      return;
-    }
     setIsAssigning(true);
     try {
       const res = await fetch(`${API_URL}/api/submissions/${selectedSub.id}/assign-evaluator`, {
@@ -2587,11 +2619,14 @@ function CoordinatorSubmissionsView({ token, showToast }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ reviewer_id: selectedReviewerId })
+        body: JSON.stringify({ 
+          reviewer_id: selectedReviewerId || null, 
+          reviewer_slot: activeSlot 
+        })
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('Avaliador alocado com sucesso!');
+        showToast(selectedReviewerId ? 'Avaliador alocado com sucesso!' : 'Avaliador removido com sucesso!');
         setShowAssignModal(false);
         setSelectedSub(null);
         fetchCoordinationSubmissions();
@@ -2668,14 +2703,14 @@ function CoordinatorSubmissionsView({ token, showToast }) {
           display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
         }}>
           <div className="glass-card" style={{ width: '450px', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Alocar Avaliador</h3>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Alocar Avaliador {activeSlot}</h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               <strong>Artigo:</strong> {selectedSub.title}<br />
               <strong>Eixo:</strong> {selectedSub.thematic_axis}
             </p>
             <form onSubmit={handleAssignReviewer}>
               <div className="form-group">
-                <label className="form-label">Selecionar Avaliador *</label>
+                <label className="form-label">Selecionar Avaliador</label>
                 {loadingEvaluators ? (
                   <div>Carregando avaliadores do evento...</div>
                 ) : evaluatorsList.length === 0 ? (
@@ -2683,11 +2718,10 @@ function CoordinatorSubmissionsView({ token, showToast }) {
                 ) : (
                   <select
                     className="form-select"
-                    required
                     value={selectedReviewerId}
                     onChange={(e) => setSelectedReviewerId(e.target.value)}
                   >
-                    <option value="">Selecione...</option>
+                    <option value="">-- Remover Designação / Nenhum --</option>
                     {evaluatorsList.map(ev => (
                       <option key={ev.id} value={ev.id}>{ev.name} ({ev.email})</option>
                     ))}
@@ -2714,13 +2748,53 @@ function CoordinatorSubmissionsView({ token, showToast }) {
           background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
           display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
         }}>
-          <div className="glass-card" style={{ width: '550px', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
+          <div className="glass-card" style={{ width: '650px', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
             <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Decisão Final da Coordenação</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
               <strong>Artigo:</strong> {selectedSub.title}<br />
-              <strong>Eixo:</strong> {selectedSub.thematic_axis}<br />
-              <strong>Parecerista Designado:</strong> {selectedSub.reviewer_name || 'Nenhum'}
+              <strong>Eixo:</strong> {selectedSub.thematic_axis}
             </p>
+
+            {/* Pareceres Técnicos Lado a Lado */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr', 
+              gap: '15px', 
+              marginBottom: '20px', 
+              background: 'var(--surface-secondary)', 
+              padding: '12px', 
+              borderRadius: 'var(--radius-sm)', 
+              fontSize: '0.82rem',
+              border: '1px solid var(--border)'
+            }}>
+              <div style={{ borderRight: '1px solid var(--border)', paddingRight: '10px' }}>
+                <h4 style={{ fontWeight: 'bold', marginBottom: '6px', color: 'var(--primary)' }}>Avaliador 1</h4>
+                <div><strong>Nome:</strong> {selectedSub.reviewer_name || <span style={{color:'var(--text-muted)'}}>Não designado</span>}</div>
+                <div style={{ marginTop: '3px' }}>
+                  <strong>Parecer:</strong>{' '}
+                  <span className={`badge ${selectedSub.reviewer_status === 'accepted' ? 'badge-success' : selectedSub.reviewer_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>
+                    {selectedSub.reviewer_status === 'under_review' ? 'Pendente' : selectedSub.reviewer_status || 'Nenhum'}
+                  </span>
+                </div>
+                <div style={{ marginTop: '6px', fontStyle: 'italic', maxHeight: '80px', overflowY: 'auto', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                  {selectedSub.reviewer_comments ? `"${selectedSub.reviewer_comments}"` : 'Sem observações.'}
+                </div>
+              </div>
+              <div style={{ paddingLeft: '5px' }}>
+                <h4 style={{ fontWeight: 'bold', marginBottom: '6px', color: 'var(--primary)' }}>Avaliador 2</h4>
+                <div><strong>Nome:</strong> {selectedSub.reviewer_2_name || <span style={{color:'var(--text-muted)'}}>Não designado</span>}</div>
+                <div style={{ marginTop: '3px' }}>
+                  <strong>Parecer:</strong>{' '}
+                  <span className={`badge ${selectedSub.reviewer_2_status === 'accepted' ? 'badge-success' : selectedSub.reviewer_2_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>
+                    {selectedSub.reviewer_2_status === 'under_review' ? 'Pendente' : selectedSub.reviewer_2_status || 'Nenhum'}
+                  </span>
+                </div>
+                <div style={{ marginTop: '6px', fontStyle: 'italic', maxHeight: '80px', overflowY: 'auto', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                  {selectedSub.reviewer_2_comments ? `"${selectedSub.reviewer_2_comments}"` : 'Sem observações.'}
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={handleCoordinatorDecision}>
               <div className="form-group">
                 <label className="form-label">Resultado Final *</label>
@@ -2769,10 +2843,10 @@ function CoordinatorSubmissionsView({ token, showToast }) {
                 <th>Evento</th>
                 <th>Título do Artigo</th>
                 <th>Eixo Temático</th>
-                <th>Avaliador Técnico</th>
+                <th>Avaliadores (1 & 2)</th>
                 <th>Status</th>
                 <th>Parecer Final</th>
-                <th style={{ width: '220px', textAlign: 'center' }}>Ações</th>
+                <th style={{ width: '170px', textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -2782,11 +2856,34 @@ function CoordinatorSubmissionsView({ token, showToast }) {
                   <td style={{ fontWeight: 600 }}>{sub.title}</td>
                   <td>{sub.thematic_axis}</td>
                   <td>
-                    {sub.reviewer_name ? (
-                      <span style={{ fontWeight: 'bold', color: 'var(--primary-light)' }}>{sub.reviewer_name}</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Não designado</span>
-                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.82rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'space-between' }}>
+                        <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '160px' }}>
+                          <strong style={{ color: 'var(--text-muted)' }}>Av. 1:</strong>{' '}
+                          {sub.reviewer_name ? (
+                            <span style={{ fontWeight: '600', color: 'var(--primary)' }} title={sub.reviewer_name}>{sub.reviewer_name}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Pendente</span>
+                          )}
+                        </span>
+                        <button className="btn btn-secondary" style={{ padding: '2px 5px', fontSize: '0.68rem', height: 'fit-content' }} onClick={() => openAssignModal(sub, 1)}>
+                          Definir
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '4px' }}>
+                        <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '160px' }}>
+                          <strong style={{ color: 'var(--text-muted)' }}>Av. 2:</strong>{' '}
+                          {sub.reviewer_2_name ? (
+                            <span style={{ fontWeight: '600', color: 'var(--primary)' }} title={sub.reviewer_2_name}>{sub.reviewer_2_name}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Pendente</span>
+                          )}
+                        </span>
+                        <button className="btn btn-secondary" style={{ padding: '2px 5px', fontSize: '0.68rem', height: 'fit-content' }} onClick={() => openAssignModal(sub, 2)}>
+                          Definir
+                        </button>
+                      </div>
+                    </div>
                   </td>
                   <td>{getStatusBadge(sub.status)}</td>
                   <td>
@@ -2801,9 +2898,6 @@ function CoordinatorSubmissionsView({ token, showToast }) {
                       <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 10px', fontSize: '0.78rem', textDecoration: 'none', display: 'inline-block' }}>
                         Documento
                       </a>
-                      <button className="btn btn-primary" style={{ padding: '6px 10px', fontSize: '0.78rem' }} onClick={() => openAssignModal(sub)}>
-                        Alocar
-                      </button>
                       <button className="btn btn-accent" style={{ padding: '6px 10px', fontSize: '0.78rem' }} onClick={() => openDecisionModal(sub)}>
                         Decidir
                       </button>

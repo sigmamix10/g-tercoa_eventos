@@ -970,10 +970,13 @@ app.post('/api/events/:id/submissions', authenticateToken, upload.single('file')
 app.get('/api/events/:id/submissions', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
     const submissions = await allQuery(`
-      SELECT s.*, u.name as submitter_name, u.email as submitter_email, rev.name as reviewer_name
+      SELECT s.*, u.name as submitter_name, u.email as submitter_email, 
+             rev.name as reviewer_name, rev.email as reviewer_email,
+             rev2.name as reviewer_2_name, rev2.email as reviewer_2_email
       FROM submissions s
       JOIN users u ON s.user_id = u.id
       LEFT JOIN users rev ON s.reviewer_id = rev.id
+      LEFT JOIN users rev2 ON s.reviewer_2_id = rev2.id
       WHERE s.event_id = ?
       ORDER BY s.created_at DESC
     `, [req.params.id]);
@@ -1069,20 +1072,26 @@ app.get('/api/coordination/submissions', authenticateToken, requireRole(['evalua
     if (req.user.role === 'admin' || req.user.role === 'moderator') {
       // Admins can see all submissions
       submissions = await allQuery(`
-        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.reviewer_id, s.review_comments, s.created_at, e.name as event_name, rev.name as reviewer_name
+        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name,
+               s.reviewer_id, rev.name as reviewer_name, s.reviewer_status, s.reviewer_comments,
+               s.reviewer_2_id, rev2.name as reviewer_2_name, s.reviewer_2_status, s.reviewer_2_comments
         FROM submissions s
         JOIN events e ON s.event_id = e.id
         LEFT JOIN users rev ON s.reviewer_id = rev.id
+        LEFT JOIN users rev2 ON s.reviewer_2_id = rev2.id
         ORDER BY s.created_at DESC
       `);
     } else {
       // Coordenador de Eixo
       submissions = await allQuery(`
-        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.reviewer_id, s.review_comments, s.created_at, e.name as event_name, rev.name as reviewer_name
+        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name,
+               s.reviewer_id, rev.name as reviewer_name, s.reviewer_status, s.reviewer_comments,
+               s.reviewer_2_id, rev2.name as reviewer_2_name, s.reviewer_2_status, s.reviewer_2_comments
         FROM submissions s
         JOIN events e ON s.event_id = e.id
         JOIN event_assignments ea ON s.event_id = ea.event_id AND s.thematic_axis = ea.axis
         LEFT JOIN users rev ON s.reviewer_id = rev.id
+        LEFT JOIN users rev2 ON s.reviewer_2_id = rev2.id
         WHERE ea.user_id = ? AND ea.role = 'coordinator'
         ORDER BY s.created_at DESC
       `, [req.user.id]);
@@ -1115,16 +1124,15 @@ app.get('/api/events/:id/assigned-evaluators', authenticateToken, requireRole(['
 
 // Coordenador de Eixo: Designar Avaliador para uma submissão
 app.post('/api/submissions/:id/assign-evaluator', authenticateToken, requireRole(['evaluator', 'admin']), async (req, res) => {
-  const { reviewer_id } = req.body;
+  const { reviewer_id, reviewer_slot } = req.body;
   const submissionId = req.params.id;
-
-  if (!reviewer_id) {
-    return res.status(400).json({ error: 'Selecione um avaliador' });
-  }
+  const slot = parseInt(reviewer_slot, 10) === 2 ? 2 : 1;
+  const columnName = slot === 2 ? 'reviewer_2_id' : 'reviewer_id';
+  const targetReviewerId = reviewer_id || null;
 
   try {
     // 1. Get submission details
-    const sub = await getQuery('SELECT event_id, thematic_axis FROM submissions WHERE id = ?', [submissionId]);
+    const sub = await getQuery('SELECT event_id, thematic_axis, reviewer_id, reviewer_2_id FROM submissions WHERE id = ?', [submissionId]);
     if (!sub) return res.status(404).json({ error: 'Submissão não encontrada' });
 
     // 2. Verify coordinator access (Admins bypass)
@@ -1139,9 +1147,30 @@ app.post('/api/submissions/:id/assign-evaluator', authenticateToken, requireRole
       }
     }
 
-    // 3. Update reviewer_id
-    await runQuery('UPDATE submissions SET reviewer_id = ? WHERE id = ?', [reviewer_id, submissionId]);
-    res.json({ message: 'Avaliador alocado com sucesso!' });
+    // 3. Verify duplication between slot 1 and 2
+    if (targetReviewerId) {
+      if (slot === 1 && sub.reviewer_2_id === targetReviewerId) {
+        return res.status(400).json({ error: 'Este avaliador já está alocado no Slot 2 deste trabalho' });
+      }
+      if (slot === 2 && sub.reviewer_id === targetReviewerId) {
+        return res.status(400).json({ error: 'Este avaliador já está alocado no Slot 1 deste trabalho' });
+      }
+    }
+
+    // 4. Update slot
+    await runQuery(`UPDATE submissions SET ${columnName} = ? WHERE id = ?`, [targetReviewerId, submissionId]);
+    
+    // Also reset evaluation status/comments if deallocating
+    if (!targetReviewerId) {
+      const statusCol = slot === 2 ? 'reviewer_2_status' : 'reviewer_status';
+      const commentsCol = slot === 2 ? 'reviewer_2_comments' : 'reviewer_comments';
+      await runQuery(`UPDATE submissions SET ${statusCol} = NULL, ${commentsCol} = NULL WHERE id = ?`, [submissionId]);
+    } else {
+      const statusCol = slot === 2 ? 'reviewer_2_status' : 'reviewer_status';
+      await runQuery(`UPDATE submissions SET ${statusCol} = 'under_review' WHERE id = ? AND ${statusCol} IS NULL`, [submissionId]);
+    }
+
+    res.json({ message: targetReviewerId ? 'Avaliador alocado com sucesso!' : 'Avaliador removido com sucesso!' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao alocar avaliador' });
@@ -1192,14 +1221,34 @@ app.post('/api/submissions/:id/coordinator-decision', authenticateToken, require
 app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator']), async (req, res) => {
   try {
     const toReview = await allQuery(`
-      SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name
+      SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, 
+             s.reviewer_id, s.reviewer_status, s.reviewer_comments,
+             s.reviewer_2_id, s.reviewer_2_status, s.reviewer_2_comments,
+             s.created_at, e.name as event_name
       FROM submissions s
       JOIN events e ON s.event_id = e.id
-      WHERE s.reviewer_id = ?
+      WHERE s.reviewer_id = ? OR s.reviewer_2_id = ?
       ORDER BY s.created_at DESC
-    `, [req.user.id]);
+    `, [req.user.id, req.user.id]);
 
-    res.json(toReview);
+    const mappedToReview = toReview.map(sub => {
+      const isReviewer1 = sub.reviewer_id === req.user.id;
+      return {
+        id: sub.id,
+        event_id: sub.event_id,
+        event_name: sub.event_name,
+        title: sub.title,
+        thematic_axis: sub.thematic_axis,
+        file_path: sub.file_path,
+        file_name: sub.file_name,
+        created_at: sub.created_at,
+        reviewer_slot: isReviewer1 ? 1 : 2,
+        status: isReviewer1 ? (sub.reviewer_status || 'under_review') : (sub.reviewer_2_status || 'under_review'),
+        review_comments: isReviewer1 ? (sub.reviewer_comments || '') : (sub.reviewer_2_comments || '')
+      };
+    });
+
+    res.json(mappedToReview);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao carregar trabalhos designados' });
@@ -1210,7 +1259,9 @@ app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator
 app.get('/api/submissions/my-submissions', authenticateToken, async (req, res) => {
   try {
     const mySubmissions = await allQuery(`
-      SELECT s.id, s.event_id, s.title, s.authors, s.affiliation, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name, e.slug as event_slug
+      SELECT s.id, s.event_id, s.title, s.authors, s.affiliation, s.thematic_axis, s.file_path, s.file_name, 
+             s.status, s.review_comments, s.created_at, e.name as event_name, e.slug as event_slug,
+             s.reviewer_status, s.reviewer_comments, s.reviewer_2_status, s.reviewer_2_comments
       FROM submissions s
       JOIN events e ON s.event_id = e.id
       WHERE s.user_id = ?
@@ -1226,15 +1277,36 @@ app.get('/api/submissions/my-submissions', authenticateToken, async (req, res) =
 
 // Alocar avaliador para submissão (Admin/Moderador)
 app.post('/api/submissions/:id/assign', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
-  const { reviewer_id } = req.body;
-
-  if (!reviewer_id) {
-    return res.status(400).json({ error: 'Selecione um avaliador' });
-  }
+  const { reviewer_id, reviewer_slot } = req.body;
+  const slot = parseInt(reviewer_slot, 10) === 2 ? 2 : 1;
+  const columnName = slot === 2 ? 'reviewer_2_id' : 'reviewer_id';
+  const targetReviewerId = reviewer_id || null;
 
   try {
-    await runQuery('UPDATE submissions SET reviewer_id = ? WHERE id = ?', [reviewer_id, req.params.id]);
-    res.json({ message: 'Avaliador alocado com sucesso!' });
+    const sub = await getQuery('SELECT reviewer_id, reviewer_2_id FROM submissions WHERE id = ?', [req.params.id]);
+    if (!sub) return res.status(404).json({ error: 'Submissão não encontrada' });
+
+    if (targetReviewerId) {
+      if (slot === 1 && sub.reviewer_2_id === targetReviewerId) {
+        return res.status(400).json({ error: 'Este avaliador já está alocado no Slot 2 deste trabalho' });
+      }
+      if (slot === 2 && sub.reviewer_id === targetReviewerId) {
+        return res.status(400).json({ error: 'Este avaliador já está alocado no Slot 1 deste trabalho' });
+      }
+    }
+
+    await runQuery(`UPDATE submissions SET ${columnName} = ? WHERE id = ?`, [targetReviewerId, req.params.id]);
+
+    if (!targetReviewerId) {
+      const statusCol = slot === 2 ? 'reviewer_2_status' : 'reviewer_status';
+      const commentsCol = slot === 2 ? 'reviewer_2_comments' : 'reviewer_comments';
+      await runQuery(`UPDATE submissions SET ${statusCol} = NULL, ${commentsCol} = NULL WHERE id = ?`, [req.params.id]);
+    } else {
+      const statusCol = slot === 2 ? 'reviewer_2_status' : 'reviewer_status';
+      await runQuery(`UPDATE submissions SET ${statusCol} = 'under_review' WHERE id = ? AND ${statusCol} IS NULL`, [req.params.id]);
+    }
+
+    res.json({ message: targetReviewerId ? 'Avaliador alocado com sucesso!' : 'Avaliador removido com sucesso!' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao alocar avaliador' });
@@ -1251,14 +1323,23 @@ app.post('/api/submissions/:id/review', authenticateToken, requireRole(['evaluat
 
   try {
     // Verify the submission is indeed allocated to this evaluator
-    const sub = await getQuery('SELECT reviewer_id FROM submissions WHERE id = ?', [req.params.id]);
-    if (!sub || sub.reviewer_id !== req.user.id) {
+    const sub = await getQuery('SELECT reviewer_id, reviewer_2_id FROM submissions WHERE id = ?', [req.params.id]);
+    if (!sub) return res.status(404).json({ error: 'Submissão não encontrada' });
+
+    let columnNameStatus, columnNameComments;
+    if (sub.reviewer_id === req.user.id) {
+      columnNameStatus = 'reviewer_status';
+      columnNameComments = 'reviewer_comments';
+    } else if (sub.reviewer_2_id === req.user.id) {
+      columnNameStatus = 'reviewer_2_status';
+      columnNameComments = 'reviewer_2_comments';
+    } else {
       return res.status(403).json({ error: 'Acesso negado: você não é o avaliador designado para este trabalho' });
     }
 
     await runQuery(`
       UPDATE submissions 
-      SET status = ?, review_comments = ?
+      SET ${columnNameStatus} = ?, ${columnNameComments} = ?
       WHERE id = ?
     `, [status, review_comments || '', req.params.id]);
 

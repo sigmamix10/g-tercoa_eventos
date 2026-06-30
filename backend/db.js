@@ -140,11 +140,16 @@ const initPromise = new Promise(async (resolve, reject) => {
           file_name TEXT NOT NULL,
           status VARCHAR(50) DEFAULT 'under_review' CHECK(status IN ('under_review', 'accepted', 'accepted_with_remarks', 'rejected')),
           reviewer_id VARCHAR(255),
-          review_comments TEXT,
+          reviewer_status VARCHAR(50),
+          reviewer_comments TEXT,
+          reviewer_2_id VARCHAR(255),
+          reviewer_2_status VARCHAR(50),
+          reviewer_2_comments TEXT,
           created_at VARCHAR(50) NOT NULL,
           FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
           FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-          FOREIGN KEY (reviewer_id) REFERENCES users (id) ON DELETE SET NULL
+          FOREIGN KEY (reviewer_id) REFERENCES users (id) ON DELETE SET NULL,
+          FOREIGN KEY (reviewer_2_id) REFERENCES users (id) ON DELETE SET NULL
         )
       `);
 
@@ -190,6 +195,34 @@ const initPromise = new Promise(async (resolve, reject) => {
           UNIQUE(event_id, user_id, type)
         )
       `);
+
+      // MySQL migrations for submissions table
+      const mysqlAlterQueries = [
+        "ALTER TABLE submissions ADD COLUMN reviewer_status VARCHAR(50)",
+        "ALTER TABLE submissions ADD COLUMN reviewer_comments TEXT",
+        "ALTER TABLE submissions ADD COLUMN reviewer_2_id VARCHAR(255)",
+        "ALTER TABLE submissions ADD COLUMN reviewer_2_status VARCHAR(50)",
+        "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT"
+      ];
+      for (const query of mysqlAlterQueries) {
+        try {
+          await mysqlPool.query(query);
+        } catch (err) {
+          if (!err.message.includes('duplicate column') && !err.message.includes('already exists') && !err.message.includes('Duplicate column')) {
+            console.log('MySQL Alter Table Notice:', err.message);
+          }
+        }
+      }
+      // Migrate existing MySQL reviews to reviewer_status/reviewer_comments if reviewer_id is set
+      try {
+        await mysqlPool.query(`
+          UPDATE submissions 
+          SET reviewer_status = status, reviewer_comments = review_comments 
+          WHERE reviewer_id IS NOT NULL AND reviewer_status IS NULL
+        `);
+      } catch (err) {
+        console.log('MySQL data migration notice:', err.message);
+      }
 
       // Seed the default admin in MySQL
       const adminEmail = process.env.ADMIN_EMAIL || 'tercoa.monitoria@gmail.com';
@@ -328,15 +361,31 @@ const initPromise = new Promise(async (resolve, reject) => {
             "ALTER TABLE events ADD COLUMN additional_links TEXT DEFAULT '[]'",
             "ALTER TABLE activities ADD COLUMN additional_links TEXT DEFAULT '[]'",
             "ALTER TABLE events ADD COLUMN cert_bg_front_url TEXT",
-            "ALTER TABLE events ADD COLUMN cert_bg_back_url TEXT"
+            "ALTER TABLE events ADD COLUMN cert_bg_back_url TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_status TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_comments TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_2_id TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_2_status TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT"
           ];
 
           alterColumns.forEach(query => {
             db.run(query, (err) => {
-              if (err && !err.message.includes('duplicate column name') && !err.message.includes('already exists')) {
+              if (err && !err.message.includes('duplicate column name') && !err.message.includes('already exists') && !err.message.includes('duplicate column')) {
                 console.log('Alter table notice:', err.message);
               }
             });
+          });
+
+          // SQLite data migration: copy old reviews to reviewer_status / reviewer_comments
+          db.run(`
+            UPDATE submissions 
+            SET reviewer_status = status, reviewer_comments = review_comments 
+            WHERE reviewer_id IS NOT NULL AND reviewer_status IS NULL
+          `, (err) => {
+            if (err) {
+              console.log('SQLite data migration notice:', err.message);
+            }
           });
 
           db.run(`
@@ -385,11 +434,16 @@ const initPromise = new Promise(async (resolve, reject) => {
               file_name TEXT NOT NULL,
               status TEXT CHECK(status IN ('under_review', 'accepted', 'accepted_with_remarks', 'rejected')) DEFAULT 'under_review',
               reviewer_id TEXT,
-              review_comments TEXT,
+              reviewer_status TEXT,
+              reviewer_comments TEXT,
+              reviewer_2_id TEXT,
+              reviewer_2_status TEXT,
+              reviewer_2_comments TEXT,
               created_at TEXT NOT NULL,
               FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
               FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-              FOREIGN KEY (reviewer_id) REFERENCES users (id) ON DELETE SET NULL
+              FOREIGN KEY (reviewer_id) REFERENCES users (id) ON DELETE SET NULL,
+              FOREIGN KEY (reviewer_2_id) REFERENCES users (id) ON DELETE SET NULL
             )
           `);
 

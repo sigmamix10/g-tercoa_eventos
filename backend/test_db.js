@@ -108,23 +108,39 @@ async function runTests() {
     assert.ok(sub, 'Submission should exist');
     assert.strictEqual(sub.status, 'under_review', 'Should be under review by default');
 
-    // Allocate reviewer
+    // Allocate reviewer 1 and 2
     const reviewerId = 'reviewer-dummy-uuid';
+    const reviewer2Id = 'reviewer-2-dummy-uuid';
     await runQuery(`
       INSERT OR REPLACE INTO users (id, name, email, password_hash, cpf, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `, [reviewerId, 'Dr. Roberto', 'roberto@gtercoa.org', 'dummyhash2', '111.111.111-11', 'evaluator', new Date().toISOString()]);
+    await runQuery(`
+      INSERT OR REPLACE INTO users (id, name, email, password_hash, cpf, role, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [reviewer2Id, 'Dr. Maria', 'maria@gtercoa.org', 'dummyhash3', '222.222.222-22', 'evaluator', new Date().toISOString()]);
 
-    await runQuery('UPDATE submissions SET reviewer_id = ? WHERE id = ?', [reviewerId, testSubId]);
+    await runQuery('UPDATE submissions SET reviewer_id = ?, reviewer_2_id = ? WHERE id = ?', [reviewerId, reviewer2Id, testSubId]);
     sub = await getQuery('SELECT * FROM submissions WHERE id = ?', [testSubId]);
-    assert.strictEqual(sub.reviewer_id, reviewerId, 'Reviewer should be assigned');
+    assert.strictEqual(sub.reviewer_id, reviewerId, 'Reviewer 1 should be assigned');
+    assert.strictEqual(sub.reviewer_2_id, reviewer2Id, 'Reviewer 2 should be assigned');
 
-    // Submit review opinion
-    await runQuery("UPDATE submissions SET status = 'accepted_with_remarks', review_comments = 'Corrigir as referências conforme NBR 6023' WHERE id = ?", [testSubId]);
+    // Submit reviews
+    await runQuery("UPDATE submissions SET reviewer_status = 'accepted_with_remarks', reviewer_comments = 'Corrigir as referências conforme NBR 6023' WHERE id = ?", [testSubId]);
+    await runQuery("UPDATE submissions SET reviewer_2_status = 'accepted', reviewer_2_comments = 'Excelente trabalho!' WHERE id = ?", [testSubId]);
+    
     sub = await getQuery('SELECT * FROM submissions WHERE id = ?', [testSubId]);
-    assert.strictEqual(sub.status, 'accepted_with_remarks');
-    assert.ok(sub.review_comments.includes('NBR 6023'));
-    console.log('✓ Test 4 Passed: Submission workflow, peer reviewer assignment, and comments update succeed.');
+    assert.strictEqual(sub.reviewer_status, 'accepted_with_remarks');
+    assert.ok(sub.reviewer_comments.includes('NBR 6023'));
+    assert.strictEqual(sub.reviewer_2_status, 'accepted');
+    assert.strictEqual(sub.reviewer_2_comments, 'Excelente trabalho!');
+
+    // Coordinator final decision
+    await runQuery("UPDATE submissions SET status = 'accepted', review_comments = 'Trabalho aceito após consolidação dos pareceres.' WHERE id = ?", [testSubId]);
+    sub = await getQuery('SELECT * FROM submissions WHERE id = ?', [testSubId]);
+    assert.strictEqual(sub.status, 'accepted');
+    assert.ok(sub.review_comments.includes('consolidação'));
+    console.log('✓ Test 4 Passed: Multiple peer reviewers assignment, individual reviews, and coordinator final decision consolidate correctly.');
 
     // Test 5: Certificate Generation & Public Verification
     console.log('Test 5: Simulating certificate generation and validation...');
