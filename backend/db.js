@@ -90,6 +90,8 @@ const initPromise = new Promise(async (resolve, reject) => {
           additional_links TEXT,
           cert_bg_front_url TEXT,
           cert_bg_back_url TEXT,
+          rules_files TEXT,
+          max_coauthors INTEGER DEFAULT 0,
           created_at VARCHAR(50) NOT NULL
         )
       `);
@@ -196,13 +198,15 @@ const initPromise = new Promise(async (resolve, reject) => {
         )
       `);
 
-      // MySQL migrations for submissions table
+      // MySQL migrations for tables
       const mysqlAlterQueries = [
         "ALTER TABLE submissions ADD COLUMN reviewer_status VARCHAR(50)",
         "ALTER TABLE submissions ADD COLUMN reviewer_comments TEXT",
         "ALTER TABLE submissions ADD COLUMN reviewer_2_id VARCHAR(255)",
         "ALTER TABLE submissions ADD COLUMN reviewer_2_status VARCHAR(50)",
-        "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT"
+        "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT",
+        "ALTER TABLE events ADD COLUMN rules_files TEXT",
+        "ALTER TABLE events ADD COLUMN max_coauthors INTEGER DEFAULT 0"
       ];
       for (const query of mysqlAlterQueries) {
         try {
@@ -331,6 +335,8 @@ const initPromise = new Promise(async (resolve, reject) => {
               additional_links TEXT DEFAULT '[]',
               cert_bg_front_url TEXT,
               cert_bg_back_url TEXT,
+              rules_files TEXT,
+              max_coauthors INTEGER DEFAULT 0,
               created_at TEXT NOT NULL
             )
           `);
@@ -366,7 +372,9 @@ const initPromise = new Promise(async (resolve, reject) => {
             "ALTER TABLE submissions ADD COLUMN reviewer_comments TEXT",
             "ALTER TABLE submissions ADD COLUMN reviewer_2_id TEXT",
             "ALTER TABLE submissions ADD COLUMN reviewer_2_status TEXT",
-            "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT"
+            "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT",
+            "ALTER TABLE events ADD COLUMN rules_files TEXT",
+            "ALTER TABLE events ADD COLUMN max_coauthors INTEGER DEFAULT 0"
           ];
 
           alterColumns.forEach(query => {

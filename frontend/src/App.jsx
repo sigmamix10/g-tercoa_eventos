@@ -520,6 +520,14 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
   const [subAffiliation, setSubAffiliation] = useState('');
   const [subAxis, setSubAxis] = useState('');
   const [submittingWork, setSubmittingWork] = useState(false);
+  const [mainAuthor, setMainAuthor] = useState('');
+  const [coAuthorsList, setCoAuthorsList] = useState([]);
+
+  useEffect(() => {
+    if (user && !mainAuthor) {
+      setMainAuthor(user.name || '');
+    }
+  }, [user]);
 
   // Checks if user is already registered to enable submission form
   const [isRegistered, setIsRegistered] = useState(false);
@@ -692,7 +700,9 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
   const handleWorkSubmission = async (e) => {
     e.preventDefault();
     if (!token) return;
-    if (!subTitle || !subAuthors || !subAffiliation || !subAxis || !submissionFile) {
+    
+    const finalAuthorsList = [mainAuthor.trim(), ...coAuthorsList.map(c => c.trim())].filter(Boolean);
+    if (!subTitle || finalAuthorsList.length === 0 || !subAffiliation || !subAxis || !submissionFile) {
       showToast('Preencha todos os campos e anexe o arquivo', 'danger');
       return;
     }
@@ -700,7 +710,7 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
     setSubmittingWork(true);
     const formData = new FormData();
     formData.append('title', subTitle);
-    formData.append('authors', subAuthors);
+    formData.append('authors', finalAuthorsList.join(', '));
     formData.append('affiliation', subAffiliation);
     formData.append('thematic_axis', subAxis);
     formData.append('file', submissionFile);
@@ -719,7 +729,7 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
         showToast('Trabalho submetido com sucesso! O comitê irá avaliar.');
         // reset form
         setSubTitle('');
-        setSubAuthors('');
+        setCoAuthorsList([]);
         setSubAffiliation('');
         setSubAxis('');
         setSubmissionFile(null);
@@ -1149,6 +1159,33 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
                   <strong>Regras deste Evento:</strong><br />{event.submission_rules}
                 </div>
               )}
+              {event.rules_files && (() => {
+                let files = [];
+                try {
+                  files = typeof event.rules_files === 'string' ? JSON.parse(event.rules_files) : event.rules_files;
+                } catch(e) {
+                  console.error(e);
+                }
+                return files && files.length > 0 ? (
+                  <div style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.88rem' }}>
+                    <strong>Arquivos e Modelos para Submissão:</strong>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
+                      {files.map((file, idx) => (
+                        <a 
+                          key={idx} 
+                          href={`${API_URL}${file.url}`} 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          className="btn btn-secondary" 
+                          style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                        >
+                          <FileText size={14} style={{ color: 'var(--primary)' }} /> {file.name}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
               <form onSubmit={handleWorkSubmission}>
                 <div className="form-group">
                   <label className="form-label">Título do Trabalho *</label>
@@ -1156,14 +1193,68 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
                 </div>
                 <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
-                    <label className="form-label">Coautores (opcional)</label>
-                    <input type="text" className="form-input" placeholder="Maria Silva, João Souza" value={subAuthors} onChange={(e) => setSubAuthors(e.target.value)} />
+                    <label className="form-label">Autor Principal *</label>
+                    <input type="text" className="form-input" required value={mainAuthor} onChange={(e) => setMainAuthor(e.target.value)} />
                   </div>
                   <div>
                     <label className="form-label">Filiação Institucional *</label>
                     <input type="text" className="form-input" placeholder="UFC, UECE, IFCE" required value={subAffiliation} onChange={(e) => setSubAffiliation(e.target.value)} />
                   </div>
                 </div>
+
+                {(() => {
+                  const maxCoauthorsAllowed = event.max_coauthors !== undefined ? parseInt(event.max_coauthors, 10) : 3;
+                  return maxCoauthorsAllowed > 0 ? (
+                    <div className="form-group" style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: '8px', marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>Coautores (Máximo {maxCoauthorsAllowed})</label>
+                        {coAuthorsList.length < maxCoauthorsAllowed && (
+                          <button 
+                            type="button" 
+                            className="btn btn-secondary" 
+                            style={{ padding: '4px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => setCoAuthorsList([...coAuthorsList, ''])}
+                          >
+                            <Plus size={14} /> Adicionar Coautor
+                          </button>
+                        )}
+                      </div>
+
+                      {coAuthorsList.length === 0 ? (
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>Nenhum coautor adicionado.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {coAuthorsList.map((author, index) => (
+                            <div key={index} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600, width: '80px' }}>Coautor {index + 1}:</span>
+                              <input
+                                type="text"
+                                className="form-input"
+                                style={{ flex: 1, padding: '6px 10px', fontSize: '0.88rem' }}
+                                placeholder={`Nome completo do coautor ${index + 1}`}
+                                value={author}
+                                required
+                                onChange={(e) => {
+                                  const updated = [...coAuthorsList];
+                                  updated[index] = e.target.value;
+                                  setCoAuthorsList(updated);
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-danger"
+                                style={{ padding: '6px 10px', display: 'flex', alignItems: 'center' }}
+                                onClick={() => setCoAuthorsList(coAuthorsList.filter((_, i) => i !== index))}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null;
+                })()}
                 <div className="form-group">
                   <label className="form-label">Eixo Temático *</label>
                   <select className="form-select" required value={subAxis} onChange={(e) => setSubAxis(e.target.value)}>
@@ -3145,6 +3236,11 @@ function AdminEventsView({ token, showToast }) {
   const [thematicAxes, setThematicAxes] = useState('');
   const [submissionRules, setSubmissionRules] = useState('');
   const [submissionsEnabled, setSubmissionsEnabled] = useState(1);
+  const [rulesFiles, setRulesFiles] = useState([]);
+  const [maxCoauthors, setMaxCoauthors] = useState(3);
+  const [newRulesFileName, setNewRulesFileName] = useState('');
+  const [newRulesFile, setNewRulesFile] = useState(null);
+  const [uploadingRulesFile, setUploadingRulesFile] = useState(false);
 
   // Tickets / Categories
   const [regCategories, setRegCategories] = useState([
@@ -3301,6 +3397,19 @@ function AdminEventsView({ token, showToast }) {
     setThematicAxes(ev.thematic_axes ? ev.thematic_axes.join(', ') : '');
     setSubmissionRules(ev.submission_rules || '');
     setSubmissionsEnabled(ev.submissions_enabled !== undefined ? ev.submissions_enabled : 1);
+    setMaxCoauthors(ev.max_coauthors !== undefined ? ev.max_coauthors : 3);
+
+    let parsedRulesFiles = [];
+    if (ev.rules_files) {
+      try {
+        parsedRulesFiles = typeof ev.rules_files === 'string' ? JSON.parse(ev.rules_files) : ev.rules_files;
+      } catch (e) {
+        console.error('Error parsing rules files JSON', e);
+      }
+    }
+    setRulesFiles(parsedRulesFiles);
+    setNewRulesFileName('');
+    setNewRulesFile(null);
 
     setRegCategories(ev.registration_categories || [
       { name: 'Estudante do Ensino Médio', price: 0 },
@@ -3476,7 +3585,9 @@ function AdminEventsView({ token, showToast }) {
       registration_start_date: overrides.registration_start_date !== undefined ? overrides.registration_start_date : registrationStartDate,
       registration_end_date: overrides.registration_end_date !== undefined ? overrides.registration_end_date : registrationEndDate,
       supporters: overrides.supporters !== undefined ? overrides.supporters : supportersList,
-      additional_links: overrides.additional_links !== undefined ? overrides.additional_links : eventAdditionalLinks
+      additional_links: overrides.additional_links !== undefined ? overrides.additional_links : eventAdditionalLinks,
+      rules_files: overrides.rules_files !== undefined ? overrides.rules_files : rulesFiles,
+      max_coauthors: overrides.max_coauthors !== undefined ? parseInt(overrides.max_coauthors, 10) : parseInt(maxCoauthors, 10)
     };
 
     try {
@@ -3491,7 +3602,14 @@ function AdminEventsView({ token, showToast }) {
       const data = await res.json();
       if (res.ok) {
         showToast('Evento atualizado com sucesso!');
-        const updated = { ...selectedEventForManagement, ...payload, guests: JSON.stringify(payload.guests), supporters: JSON.stringify(payload.supporters), additional_links: payload.additional_links };
+        const updated = { 
+          ...selectedEventForManagement, 
+          ...payload, 
+          guests: JSON.stringify(payload.guests), 
+          supporters: JSON.stringify(payload.supporters), 
+          additional_links: payload.additional_links,
+          rules_files: JSON.stringify(payload.rules_files)
+        };
         setSelectedEventForManagement(updated);
         fetchEvents();
         return true;
@@ -4187,51 +4305,185 @@ function AdminEventsView({ token, showToast }) {
       await saveEventDetails({
         submissions_enabled: submissionsEnabled,
         submission_rules: submissionRules,
-        thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean)
+        thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+        rules_files: rulesFiles,
+        max_coauthors: maxCoauthors
+      });
+    };
+
+    const handleAddRulesFile = async (e) => {
+      e.preventDefault();
+      if (!newRulesFile) {
+        showToast('Selecione um arquivo para enviar', 'warning');
+        return;
+      }
+      const displayName = newRulesFileName.trim() || newRulesFile.name;
+      
+      setUploadingRulesFile(true);
+      const formData = new FormData();
+      formData.append('file', newRulesFile);
+      
+      try {
+        const res = await fetch(`${API_URL}/api/upload-file`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const updated = [...rulesFiles, { name: displayName, url: data.file_url }];
+          setRulesFiles(updated);
+          setNewRulesFileName('');
+          setNewRulesFile(null);
+          const fileInput = document.getElementById('rules-file-input');
+          if (fileInput) fileInput.value = '';
+          showToast('Arquivo de regras enviado com sucesso!');
+          await saveEventDetails({
+            submissions_enabled: submissionsEnabled,
+            submission_rules: submissionRules,
+            thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+            rules_files: updated,
+            max_coauthors: maxCoauthors
+          });
+        } else {
+          showToast(data.error || 'Erro ao enviar arquivo', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao enviar arquivo', 'danger');
+      } finally {
+        setUploadingRulesFile(false);
+      }
+    };
+
+    const handleRemoveRulesFile = async (idx) => {
+      const updated = rulesFiles.filter((_, i) => i !== idx);
+      setRulesFiles(updated);
+      showToast('Arquivo de regras removido');
+      await saveEventDetails({
+        submissions_enabled: submissionsEnabled,
+        submission_rules: submissionRules,
+        thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+        rules_files: updated,
+        max_coauthors: maxCoauthors
       });
     };
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <div className="glass-card">
-          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Regras & Eixos Temáticos</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Regras & Eixos Temáticos</h3>
 
-          <form onSubmit={handleSaveSubmissionConfig}>
-            <div className="form-group" style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
-                <input
-                  type="checkbox"
-                  checked={submissionsEnabled === 1}
-                  onChange={(e) => setSubmissionsEnabled(e.target.checked ? 1 : 0)}
-                  style={{ width: '18px', height: '18px' }}
+            <form onSubmit={handleSaveSubmissionConfig}>
+              <div className="form-group" style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={submissionsEnabled === 1}
+                    onChange={(e) => setSubmissionsEnabled(e.target.checked ? 1 : 0)}
+                    style={{ width: '18px', height: '18px' }}
+                  />
+                  Habilitar Envio de Trabalhos / Chamada Científica
+                </label>
+              </div>
+
+              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '15px' }}>
+                <div>
+                  <label className="form-label">Eixos Temáticos (separados por vírgula) *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ex: Alfabetização Matemática, Prática Pedagógica"
+                    value={thematicAxes}
+                    onChange={(e) => setThematicAxes(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Máx. Coautores *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    className="form-input"
+                    value={maxCoauthors}
+                    onChange={(e) => setMaxCoauthors(parseInt(e.target.value, 10) || 0)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Regras e Instruções para Submissão</label>
+                <textarea
+                  className="form-textarea"
+                  placeholder="Insira as diretrizes de envio, formatação, número máximo de páginas, etc."
+                  style={{ minHeight: '80px' }}
+                  value={submissionRules}
+                  onChange={(e) => setSubmissionRules(e.target.value)}
                 />
-                Habilitar Envio de Trabalhos / Chamada Científica
-              </label>
-            </div>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Salvar Ajustes de Submissão</button>
+            </form>
+          </div>
 
-            <div className="form-group">
-              <label className="form-label">Eixos Temáticos (separados por vírgula) *</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Ex: Alfabetização Matemática, Prática Pedagógica"
-                value={thematicAxes}
-                onChange={(e) => setThematicAxes(e.target.value)}
-              />
-            </div>
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.2rem', color: 'var(--primary)', marginBottom: '16px' }}>Arquivos e Modelos do Evento</h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Faça upload de editais, templates de formatação ou outros arquivos essenciais para autores e avaliadores.
+            </p>
 
-            <div className="form-group">
-              <label className="form-label">Regras e Instruções para Submissão</label>
-              <textarea
-                className="form-textarea"
-                placeholder="Insira as diretrizes de envio, formatação, número máximo de páginas, etc."
-                style={{ minHeight: '80px' }}
-                value={submissionRules}
-                onChange={(e) => setSubmissionRules(e.target.value)}
-              />
-            </div>
-            <button type="submit" className="btn btn-primary">Salvar Ajustes de Submissão</button>
-          </form>
+            <form onSubmit={handleAddRulesFile} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px', background: 'var(--surface-secondary)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ gridColumn: 'span 2' }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Nome de Exibição do Documento</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  placeholder="Ex: Edital de Submissão, Template de Resumo"
+                  value={newRulesFileName}
+                  onChange={(e) => setNewRulesFileName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Arquivo *</label>
+                <input
+                  type="file"
+                  id="rules-file-input"
+                  className="form-input"
+                  style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                  required
+                  onChange={(e) => setNewRulesFile(e.target.files[0])}
+                />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '8px 12px', fontSize: '0.82rem' }} disabled={uploadingRulesFile}>
+                  {uploadingRulesFile ? 'Enviando...' : 'Adicionar'}
+                </button>
+              </div>
+            </form>
+
+            {rulesFiles.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem', textAlign: 'center' }}>Nenhum arquivo enviado.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {rulesFiles.map((file, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <FileText size={16} style={{ color: 'var(--primary-light)' }} />
+                      <a href={`${API_URL}${file.url}`} target="_blank" rel="noreferrer" style={{ fontWeight: 600, color: 'var(--primary)', textDecoration: 'none' }}>
+                        {file.name}
+                      </a>
+                    </div>
+                    <button type="button" className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.72rem' }} onClick={() => handleRemoveRulesFile(idx)}>
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div>

@@ -62,6 +62,17 @@ app.post('/api/upload-image', authenticateToken, upload.single('image'), (req, r
   res.json({ image_url: `/uploads/${req.file.filename}` });
 });
 
+// Upload File Endpoint (Edital, Templates, etc)
+app.post('/api/upload-file', authenticateToken, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo fornecido' });
+  }
+  res.json({ 
+    file_url: `/uploads/${req.file.filename}`,
+    file_name: req.file.originalname 
+  });
+});
+
 // JWT Token Authentication Middleware
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -291,7 +302,9 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
     supporters,
     additional_links,
     cert_bg_front_url,
-    cert_bg_back_url
+    cert_bg_back_url,
+    rules_files,
+    max_coauthors
   } = req.body;
 
   if (!name || !slug || !type || !start_date || !end_date) {
@@ -304,6 +317,7 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
   const categoriesJSON = JSON.stringify(registration_categories || []);
   const supportersJSON = JSON.stringify(supporters || []);
   const additionalLinksJSON = JSON.stringify(additional_links || []);
+  const rulesFilesJSON = JSON.stringify(rules_files || []);
 
   try {
     const eventId = crypto.randomUUID();
@@ -314,8 +328,8 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
         cert_border_color, cert_signature_name, cert_signature_role, cert_text_template,
         location, guests, submissions_enabled, cert_text_organization, cert_text_presentation, cert_text_guest,
         registration_start_date, registration_end_date, supporters, additional_links,
-        cert_bg_front_url, cert_bg_back_url, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cert_bg_front_url, cert_bg_back_url, rules_files, max_coauthors, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       eventId,
       formattedSlug,
@@ -346,6 +360,8 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
       additionalLinksJSON,
       cert_bg_front_url || null,
       cert_bg_back_url || null,
+      rulesFilesJSON,
+      max_coauthors !== undefined ? parseInt(max_coauthors, 10) : 3,
       new Date().toISOString()
     ]);
 
@@ -437,7 +453,9 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
     supporters,
     additional_links,
     cert_bg_front_url,
-    cert_bg_back_url
+    cert_bg_back_url,
+    rules_files,
+    max_coauthors
   } = req.body;
 
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -445,6 +463,7 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
   const categoriesJSON = JSON.stringify(registration_categories || []);
   const supportersJSON = JSON.stringify(supporters || []);
   const additionalLinksJSON = JSON.stringify(additional_links || []);
+  const rulesFilesJSON = JSON.stringify(rules_files || []);
 
   try {
     await runQuery(`
@@ -454,7 +473,7 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
           cert_border_color = ?, cert_signature_name = ?, cert_signature_role = ?, cert_text_template = ?,
           location = ?, guests = ?, submissions_enabled = ?, cert_text_organization = ?, cert_text_presentation = ?, cert_text_guest = ?,
           registration_start_date = ?, registration_end_date = ?, supporters = ?, additional_links = ?,
-          cert_bg_front_url = ?, cert_bg_back_url = ?
+          cert_bg_front_url = ?, cert_bg_back_url = ?, rules_files = ?, max_coauthors = ?
       WHERE id = ?
     `, [
       name,
@@ -485,10 +504,12 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
       additionalLinksJSON,
       cert_bg_front_url || null,
       cert_bg_back_url || null,
+      rulesFilesJSON,
+      max_coauthors !== undefined ? parseInt(max_coauthors, 10) : 3,
       req.params.id
     ]);
 
-    res.json({ message: 'Evento atualizado com sucesso' });
+    res.json({ message: 'Evento updated com sucesso' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao atualizar evento' });

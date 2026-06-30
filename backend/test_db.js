@@ -24,8 +24,9 @@ async function runTests() {
     await runQuery(`
       INSERT OR REPLACE INTO events (
         id, slug, name, type, description, banner_url, start_date, end_date,
-        thematic_axes, registration_categories, submission_rules, workload_hours, transmission_link, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        thematic_axes, registration_categories, submission_rules, workload_hours, transmission_link,
+        rules_files, max_coauthors, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       testEventId,
       'test-workshop-2026',
@@ -40,6 +41,8 @@ async function runTests() {
       'Formate segundo a ABNT.',
       24,
       'http://youtube.com/live',
+      JSON.stringify([{ name: 'Edital do Evento', url: '/uploads/edital.pdf' }]),
+      2,
       new Date().toISOString()
     ]);
 
@@ -47,6 +50,8 @@ async function runTests() {
     assert.ok(event, 'Event should be successfully created');
     assert.strictEqual(event.slug, 'test-workshop-2026');
     assert.strictEqual(event.workload_hours, 24);
+    assert.strictEqual(event.max_coauthors, 2);
+    assert.deepStrictEqual(JSON.parse(event.rules_files), [{ name: 'Edital do Evento', url: '/uploads/edital.pdf' }]);
     assert.deepStrictEqual(JSON.parse(event.thematic_axes), ['Eixo 1', 'Eixo 2']);
     console.log('✓ Test 2 Passed: Event created and retrieved successfully with parsed JSON fields.');
 
