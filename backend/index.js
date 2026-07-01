@@ -237,7 +237,7 @@ app.get('/api/users/evaluators', authenticateToken, requireRole(['admin', 'moder
 // Lista de Todos os Usuários Cadastrados no Sistema (Admin/Moderador)
 app.get('/api/users', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   try {
-    const users = await allQuery('SELECT id, name, email, cpf, role FROM users ORDER BY name ASC');
+    const users = await allQuery('SELECT id, name, email, cpf, role, institution, position, lattes_link, orcid FROM users ORDER BY name ASC');
     res.json(users);
   } catch (err) {
     console.error(err);
@@ -245,7 +245,7 @@ app.get('/api/users', authenticateToken, requireRole(['admin', 'moderator']), as
   }
 });
 
-// Atualizar papel de um usuário (Admin)
+// Atualizar papel de um usuário (Admin) - mantido para retrocompatibilidade
 app.put('/api/users/:id/role', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { role } = req.body;
   const allowedRoles = ['admin', 'moderator', 'evaluator', 'participant'];
@@ -265,6 +265,89 @@ app.put('/api/users/:id/role', authenticateToken, requireRole(['admin']), async 
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao atualizar papel do usuário' });
+  }
+});
+
+// Atualizar dados cadastrais e senha de um usuário (Admin)
+app.put('/api/users/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { name, email, cpf, role, password, institution, position, lattes_link, orcid } = req.body;
+  const targetUserId = req.params.id;
+
+  if (!name || !email || !cpf || !role) {
+    return res.status(400).json({ error: 'Campos nome, e-mail, cpf e papel são obrigatórios.' });
+  }
+
+  try {
+    // Evitar que o próprio admin mude o próprio papel para não se trancar
+    if (targetUserId === req.user.id && role !== 'admin') {
+      return res.status(400).json({ error: 'Você não pode alterar seu próprio papel administrativo' });
+    }
+
+    // Verificar se email ou cpf está cadastrado por outro usuário
+    const checkEmail = await getQuery('SELECT id FROM users WHERE email = ? AND id != ?', [email, targetUserId]);
+    if (checkEmail) {
+      return res.status(400).json({ error: 'Este e-mail já está cadastrado por outro usuário' });
+    }
+
+    const checkCpf = await getQuery('SELECT id FROM users WHERE cpf = ? AND id != ?', [cpf, targetUserId]);
+    if (checkCpf) {
+      return res.status(400).json({ error: 'Este CPF já está cadastrado por outro usuário' });
+    }
+
+    if (password && password.trim().length > 0) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await runQuery(`
+        UPDATE users 
+        SET name = ?, email = ?, cpf = ?, role = ?, password_hash = ?, institution = ?, position = ?, lattes_link = ?, orcid = ?
+        WHERE id = ?
+      `, [name, email, cpf, role, hashedPassword, institution || null, position || null, lattes_link || null, orcid || null, targetUserId]);
+    } else {
+      await runQuery(`
+        UPDATE users 
+        SET name = ?, email = ?, cpf = ?, role = ?, institution = ?, position = ?, lattes_link = ?, orcid = ?
+        WHERE id = ?
+      `, [name, email, cpf, role, institution || null, position || null, lattes_link || null, orcid || null, targetUserId]);
+    }
+
+    res.json({ message: 'Dados do usuário atualizados com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar dados do usuário' });
+  }
+});
+
+// Listar todas as designações em eventos de um usuário específico (Admin)
+app.get('/api/users/:id/assignments', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const userId = req.params.id;
+  try {
+    const assignments = await allQuery(`
+      SELECT ea.id, ea.event_id, ea.role, ea.axis, e.name as event_name
+      FROM event_assignments ea
+      JOIN events e ON ea.event_id = e.id
+      WHERE ea.user_id = ?
+      ORDER BY e.name ASC
+    `, [userId]);
+    res.json(assignments);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar designações do usuário' });
+  }
+});
+
+// Obter Designações do próprio usuário logado
+app.get('/api/my-assignments', authenticateToken, async (req, res) => {
+  try {
+    const assignments = await allQuery(`
+      SELECT ea.id, ea.event_id, ea.role, ea.axis, e.name as event_name
+      FROM event_assignments ea
+      JOIN events e ON ea.event_id = e.id
+      WHERE ea.user_id = ?
+      ORDER BY e.name ASC
+    `, [req.user.id]);
+    res.json(assignments);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar suas designações' });
   }
 });
 
@@ -1179,6 +1262,151 @@ app.delete('/api/events/:eventId/assignments/:assignmentId', authenticateToken, 
 });
 
 // ==========================================
+// EVENT NOTIFICATIONS / COMMUNICATION AREA
+// ==========================================
+
+// Enviar comunicado (Coordenador de Comunicação, Coordenador Geral, Admin)
+app.post('/api/events/:id/notifications', authenticateToken, async (req, res) => {
+  const eventId = req.params.id;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+  const { title, message, target_audience } = req.body;
+
+  if (!title || !message || !target_audience) {
+    return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
+  }
+
+  const validAudiences = ['all', 'present', 'authors', 'evaluators', 'coordinators'];
+  if (!validAudiences.includes(target_audience)) {
+    return res.status(400).json({ error: 'Público alvo inválido' });
+  }
+
+  try {
+    // Check if user is event manager (admin, or event_coordinator / communication_coordinator)
+    let isManager = userRole === 'admin';
+    if (!isManager) {
+      const assignment = await getQuery(`
+        SELECT id FROM event_assignments 
+        WHERE event_id = ? AND user_id = ? AND role IN ('event_coordinator', 'communication_coordinator')
+      `, [eventId, userId]);
+      if (assignment) {
+        isManager = true;
+      }
+    }
+
+    if (!isManager) {
+      return res.status(403).json({ error: 'Acesso negado para esta operação.' });
+    }
+
+    const notificationId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+
+    await runQuery(`
+      INSERT INTO event_notifications (id, event_id, sender_id, title, message, target_audience, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [notificationId, eventId, userId, title, message, target_audience, createdAt]);
+
+    res.status(201).json({ message: 'Comunicado enviado com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao enviar comunicado' });
+  }
+});
+
+// Listar comunicados recebidos ou enviados do evento (Filtros de acordo com o público-alvo)
+app.get('/api/events/:id/notifications', authenticateToken, async (req, res) => {
+  const eventId = req.params.id;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Check if user is event manager (admin, or event_coordinator / communication_coordinator)
+    let isManager = userRole === 'admin';
+    if (!isManager) {
+      const assignment = await getQuery(`
+        SELECT id FROM event_assignments 
+        WHERE event_id = ? AND user_id = ? AND role IN ('event_coordinator', 'communication_coordinator')
+      `, [eventId, userId]);
+      if (assignment) {
+        isManager = true;
+      }
+    }
+
+    if (isManager) {
+      // Return all notifications sent for this event
+      const notifications = await allQuery(`
+        SELECT n.*, u.name as sender_name 
+        FROM event_notifications n 
+        JOIN users u ON n.sender_id = u.id 
+        WHERE n.event_id = ? 
+        ORDER BY n.created_at DESC
+      `, [eventId]);
+      return res.json(notifications);
+    }
+
+    // Determine target audiences this user is eligible for
+    const audiences = [];
+
+    // 1. Check registration
+    const registration = await getQuery(`
+      SELECT checked_in FROM registrations 
+      WHERE event_id = ? AND user_id = ?
+    `, [eventId, userId]);
+
+    if (registration) {
+      audiences.push('all');
+      if (registration.checked_in === 1) {
+        audiences.push('present');
+      }
+    }
+
+    // 2. Check submissions (Author)
+    const submission = await getQuery(`
+      SELECT id FROM submissions 
+      WHERE event_id = ? AND user_id = ?
+    `, [eventId, userId]);
+
+    if (submission) {
+      audiences.push('authors');
+    }
+
+    // 3. Check assignments (Evaluator, Coordinator)
+    const assignments = await allQuery(`
+      SELECT role FROM event_assignments 
+      WHERE event_id = ? AND user_id = ?
+    `, [eventId, userId]);
+
+    assignments.forEach(assign => {
+      if (assign.role === 'evaluator') {
+        audiences.push('evaluators');
+      }
+      if (assign.role === 'coordinator') {
+        audiences.push('coordinators');
+      }
+    });
+
+    if (audiences.length === 0) {
+      return res.json([]);
+    }
+
+    // SQLite/MySQL IN operator requires dynamically binding parameters
+    const placeholders = audiences.map(() => '?').join(',');
+    const notifications = await allQuery(`
+      SELECT n.*, u.name as sender_name 
+      FROM event_notifications n 
+      JOIN users u ON n.sender_id = u.id 
+      WHERE n.event_id = ? AND n.target_audience IN (${placeholders})
+      ORDER BY n.created_at DESC
+    `, [eventId, ...audiences]);
+
+    res.json(notifications);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar comunicados' });
+  }
+});
+
+// ==========================================
 // COORDINATION VIEW AND CONTROLS
 // ==========================================
 
@@ -1505,9 +1733,10 @@ app.get('/api/certificates/user', authenticateToken, async (req, res) => {
   }
 });
 
-// Emitir Certificados para os Credenciados do Evento (Admin)
+// Emitir Certificados para os Credenciados do Evento em Lote (Admin)
 app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const eventId = req.params.id;
+  const { template_id } = req.body;
 
   try {
     // 1. Get event details
@@ -1518,7 +1747,7 @@ app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole
     const checkedInNoCert = await allQuery(`
       SELECT r.user_id 
       FROM registrations r
-      LEFT JOIN certificates c ON r.event_id = c.event_id AND r.user_id = c.user_id
+      LEFT JOIN certificates c ON r.event_id = c.event_id AND r.user_id = c.user_id AND c.type = 'participation'
       WHERE r.event_id = ? AND r.checked_in = 1 AND c.id IS NULL
     `, [eventId]);
 
@@ -1527,9 +1756,9 @@ app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole
       const code = `GTERCOA-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
       const certId = crypto.randomUUID();
       await runQuery(`
-        INSERT INTO certificates (id, event_id, user_id, verification_code, workload_hours, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [certId, eventId, reg.user_id, code, event.workload_hours, new Date().toISOString()]);
+        INSERT INTO certificates (id, event_id, user_id, verification_code, workload_hours, type, template_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [certId, eventId, reg.user_id, code, event.workload_hours, 'participation', template_id || null, new Date().toISOString()]);
       generatedCount++;
     }
 
@@ -1543,7 +1772,7 @@ app.post('/api/events/:id/certificates/generate', authenticateToken, requireRole
 // Emitir Certificado Individual/Customizado (Admin)
 app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
   const eventId = req.params.id;
-  const { user_email, type, workload_hours, presentation_title } = req.body;
+  const { user_email, type, workload_hours, presentation_title, template_id } = req.body;
 
   if (!user_email || !type) {
     return res.status(400).json({ error: 'E-mail do usuário e tipo do certificado são obrigatórios' });
@@ -1579,8 +1808,8 @@ app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['
     const code = `GTERCOA-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const certId = crypto.randomUUID();
     await runQuery(`
-      INSERT INTO certificates (id, event_id, user_id, verification_code, workload_hours, type, presentation_title, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO certificates (id, event_id, user_id, verification_code, workload_hours, type, presentation_title, template_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       certId, 
       eventId, 
@@ -1589,6 +1818,7 @@ app.post('/api/events/:id/certificates/issue', authenticateToken, requireRole(['
       parseInt(workload_hours) || 20, 
       selectedType, 
       presentation_title || null, 
+      template_id || null,
       new Date().toISOString()
     ]);
 
@@ -1613,6 +1843,70 @@ app.get('/api/events/:id/certificates', authenticateToken, requireRole(['admin',
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao carregar lista de certificados' });
+  }
+});
+
+// ==========================================
+// 5B. TEMPLATES DE CERTIFICADO (ADMIN)
+// ==========================================
+
+// Listar todos os templates de certificado
+app.get('/api/certificates/templates', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
+  try {
+    const templates = await allQuery('SELECT * FROM certificate_templates ORDER BY name ASC');
+    res.json(templates);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar templates de certificado' });
+  }
+});
+
+// Criar template de certificado
+app.post('/api/certificates/templates', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
+  const { name, bg_front_url, bg_back_url, text_template } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: 'O nome do certificado é obrigatório' });
+  }
+  try {
+    const id = crypto.randomUUID();
+    await runQuery(`
+      INSERT INTO certificate_templates (id, name, bg_front_url, bg_back_url, text_template, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [id, name, bg_front_url || null, bg_back_url || null, text_template || null, new Date().toISOString()]);
+    res.status(201).json({ message: 'Template de certificado criado com sucesso!', id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao criar template de certificado' });
+  }
+});
+
+// Editar template de certificado
+app.put('/api/certificates/templates/:id', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
+  const { name, bg_front_url, bg_back_url, text_template } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: 'O nome do certificado é obrigatório' });
+  }
+  try {
+    await runQuery(`
+      UPDATE certificate_templates
+      SET name = ?, bg_front_url = ?, bg_back_url = ?, text_template = ?
+      WHERE id = ?
+    `, [name, bg_front_url || null, bg_back_url || null, text_template || null, req.params.id]);
+    res.json({ message: 'Template de certificado atualizado com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar template de certificado' });
+  }
+});
+
+// Excluir template de certificado
+app.delete('/api/certificates/templates/:id', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
+  try {
+    await runQuery('DELETE FROM certificate_templates WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Template de certificado excluído com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao excluir template de certificado' });
   }
 });
 
@@ -1646,16 +1940,18 @@ app.get('/api/certificates/verify/:code', async (req, res) => {
 app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
   try {
     const cert = await getQuery(`
-      SELECT c.verification_code, c.workload_hours, c.type as cert_type, c.presentation_title,
+      SELECT c.verification_code, c.workload_hours, c.type as cert_type, c.presentation_title, c.template_id,
              u.name as user_name, u.cpf as user_cpf,
              e.name as event_name, e.start_date, e.end_date, e.type as event_type,
              e.cert_border_color, e.cert_signature_name, e.cert_signature_role, e.cert_text_template,
              e.cert_text_organization, e.cert_text_presentation, e.cert_text_guest,
              e.cert_bg_front_url, e.cert_bg_back_url,
+             ct.bg_front_url as template_bg_front_url, ct.bg_back_url as template_bg_back_url, ct.text_template as template_text_template,
              c.user_id as cert_user_id
       FROM certificates c
       JOIN users u ON c.user_id = u.id
       JOIN events e ON c.event_id = e.id
+      LEFT JOIN certificate_templates ct ON c.template_id = ct.id
       WHERE c.id = ?
     `, [req.params.id]);
 
@@ -1676,13 +1972,18 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
     doc.pipe(res);
 
+    const hasTemplate = !!cert.template_id;
+    const bgFront = cert.template_bg_front_url || cert.cert_bg_front_url;
+    const bgBack = cert.template_bg_back_url || cert.cert_bg_back_url;
+    const textTemplate = cert.template_text_template || cert.cert_text_template;
+
     // Styling properties
     const primaryColor = cert.cert_border_color || '#1A365D'; // Custom border / primary theme color
     const secondaryColor = '#D69E2E'; // Gold accents
 
-     const localBgFront = cert.cert_bg_front_url ? path.join(__dirname, cert.cert_bg_front_url.replace(/^\//, '')) : null;
-     const localBgBack = cert.cert_bg_back_url ? path.join(__dirname, cert.cert_bg_back_url.replace(/^\//, '')) : null;
- 
+    const localBgFront = bgFront ? path.join(__dirname, bgFront.replace(/^\//, '')) : null;
+    const localBgBack = bgBack ? path.join(__dirname, bgBack.replace(/^\//, '')) : null;
+
      if (localBgFront && fs.existsSync(localBgFront)) {
        // Draw background PNG image spanning A4 landscape
        doc.image(localBgFront, 0, 0, { width: 842, height: 595 });
@@ -1690,19 +1991,19 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
        // Draw default borders & headers
        doc.rect(20, 20, 802, 555).lineWidth(3).stroke(primaryColor);
        doc.rect(26, 26, 790, 543).lineWidth(1).stroke(secondaryColor);
- 
+
        doc.fillColor(primaryColor)
           .font('Helvetica-Bold')
           .fontSize(28)
           .text('G-TERCOA', 0, 70, { align: 'center' });
- 
+
        doc.fillColor('#4A5568')
           .font('Helvetica')
           .fontSize(12)
           .text('Grupo de Estudos e Pesquisa - Educação Matemática e Pedagogia', 0, 105, { align: 'center' });
- 
+
        doc.moveTo(250, 125).lineTo(592, 125).lineWidth(1.5).stroke(secondaryColor);
- 
+
        doc.fillColor(primaryColor)
           .font('Helvetica-Bold')
           .fontSize(36)
@@ -1720,22 +2021,26 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
     let template = '';
     const certType = cert.cert_type || 'participation';
 
-    if (certType === 'organization' || certType === 'organization_general') {
-      template = cert.cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.';
-    } else if (certType === 'organization_coordinator') {
-      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, na função de Coordenador(a), com carga horária total de {carga_horaria} horas.';
-    } else if (certType === 'organization_technical') {
-      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, atuando na Equipe Técnica, com carga horária total de {carga_horaria} horas.';
-    } else if (certType === 'presentation' || certType === 'submission') {
-      template = cert.cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.';
-    } else if (certType === 'guest' || certType === 'guest_speaker') {
-      template = cert.cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.';
-    } else if (certType === 'guest_mediator') {
-      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como Mediador(a) convidado(a) no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.';
-    } else if (certType === 'workshop') {
-      template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou do Minicurso/Oficina intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
+    if (hasTemplate) {
+      template = textTemplate || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
     } else {
-      template = cert.cert_text_template || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
+      if (certType === 'organization' || certType === 'organization_general') {
+        template = cert.cert_text_organization || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, com carga horária total de {carga_horaria} horas.';
+      } else if (certType === 'organization_coordinator') {
+        template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, na função de Coordenador(a), com carga horária total de {carga_horaria} horas.';
+      } else if (certType === 'organization_technical') {
+        template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou da Comissão Organizadora do evento acadêmico {evento}, realizado {periodo}, atuando na Equipe Técnica, com carga horária total de {carga_horaria} horas.';
+      } else if (certType === 'presentation' || certType === 'submission') {
+        template = cert.cert_text_presentation || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, apresentou o trabalho intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.';
+      } else if (certType === 'guest' || certType === 'guest_speaker') {
+        template = cert.cert_text_guest || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como convidado(a)/palestrante especial no evento acadêmico {evento}, realizado {periodo}, ministrando atividades com carga horária de {carga_horaria} horas.';
+      } else if (certType === 'guest_mediator') {
+        template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou como Mediador(a) convidado(a) no evento acadêmico {evento}, realizado {periodo}, com carga horária de {carga_horaria} horas.';
+      } else if (certType === 'workshop') {
+        template = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou do Minicurso/Oficina intitulado "{titulo_trabalho}" no evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
+      } else {
+        template = textTemplate || 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
+      }
     }
 
     const customText = template
@@ -1747,7 +2052,7 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
       .replace(/{titulo_trabalho}/g, cert.presentation_title || 'N/A');
 
     const defaultTemplate = 'Certificamos para os devidos fins que {nome}, inscrito(a) sob o CPF nº {cpf}, participou ativamente do evento acadêmico {evento}, realizado {periodo}, cumprindo carga horária total de {carga_horaria} horas.';
-    const isDefault = certType === 'participation' && (!cert.cert_text_template || cert.cert_text_template.trim() === '' || cert.cert_text_template.trim() === defaultTemplate);
+    const isDefault = !hasTemplate && certType === 'participation' && (!cert.cert_text_template || cert.cert_text_template.trim() === '' || cert.cert_text_template.trim() === defaultTemplate);
 
     if (isDefault) {
       // Elegant structured layout
@@ -1793,16 +2098,18 @@ app.get('/api/certificates/:id/pdf', authenticateToken, async (req, res) => {
        .fontSize(12)
        .text(`Fortaleza, ${validationDate}.`, 0, 440, { align: 'center' });
 
-    // Signature Line
-    doc.moveTo(321, 505).lineTo(521, 505).lineWidth(1).stroke('#A0AEC0');
-    doc.fillColor('#2D3748')
-       .font('Helvetica-Bold')
-       .fontSize(10)
-       .text(cert.cert_signature_name || 'Comissão Organizadora G-TERCOA', 0, 510, { align: 'center' });
-    doc.fillColor('#4A5568')
-       .font('Helvetica')
-       .fontSize(9)
-       .text(cert.cert_signature_role || 'Coordenador Geral', 0, 523, { align: 'center' });
+    // Signature Line (Only drawn if NOT using a template, since template has them printed directly)
+    if (!hasTemplate) {
+      doc.moveTo(321, 505).lineTo(521, 505).lineWidth(1).stroke('#A0AEC0');
+      doc.fillColor('#2D3748')
+         .font('Helvetica-Bold')
+         .fontSize(10)
+         .text(cert.cert_signature_name || 'Comissão Organizadora G-TERCOA', 0, 510, { align: 'center' });
+      doc.fillColor('#4A5568')
+         .font('Helvetica')
+         .fontSize(9)
+         .text(cert.cert_signature_role || 'Coordenador Geral', 0, 523, { align: 'center' });
+    }
 
     // Authenticity Box (Bottom Left)
     doc.rect(40, 500, 260, 45).lineWidth(1).stroke('#E2E8F0');

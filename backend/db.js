@@ -169,11 +169,25 @@ const initPromise = new Promise(async (resolve, reject) => {
           id VARCHAR(255) PRIMARY KEY,
           event_id VARCHAR(255) NOT NULL,
           user_id VARCHAR(255) NOT NULL,
-          role VARCHAR(50) NOT NULL CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator')),
+          role VARCHAR(50) NOT NULL CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator', 'communication_coordinator')),
           axis VARCHAR(255),
           FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
           FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
           UNIQUE(event_id, user_id, role, axis)
+        )
+      `);
+
+      await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS event_notifications (
+          id VARCHAR(255) PRIMARY KEY,
+          event_id VARCHAR(255) NOT NULL,
+          sender_id VARCHAR(255) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          target_audience VARCHAR(50) NOT NULL CHECK(target_audience IN ('all', 'present', 'authors', 'evaluators', 'coordinators')),
+          created_at VARCHAR(50) NOT NULL,
+          FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+          FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE
         )
       `);
 
@@ -192,6 +206,17 @@ const initPromise = new Promise(async (resolve, reject) => {
       `);
 
       await mysqlPool.query(`
+        CREATE TABLE IF NOT EXISTS certificate_templates (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          bg_front_url TEXT,
+          bg_back_url TEXT,
+          text_template TEXT,
+          created_at VARCHAR(50) NOT NULL
+        )
+      `);
+
+      await mysqlPool.query(`
         CREATE TABLE IF NOT EXISTS certificates (
           id VARCHAR(255) PRIMARY KEY,
           event_id VARCHAR(255) NOT NULL,
@@ -200,6 +225,7 @@ const initPromise = new Promise(async (resolve, reject) => {
           workload_hours INTEGER NOT NULL,
           type VARCHAR(50) DEFAULT 'participation',
           presentation_title TEXT,
+          template_id VARCHAR(255),
           created_at VARCHAR(50) NOT NULL,
           FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
           FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -224,7 +250,8 @@ const initPromise = new Promise(async (resolve, reject) => {
         "ALTER TABLE submissions ADD COLUMN reviewer_2_evaluation_form TEXT",
         "ALTER TABLE submissions ADD COLUMN file_path_identified TEXT",
         "ALTER TABLE submissions ADD COLUMN file_name_identified TEXT",
-        "ALTER TABLE submissions ADD COLUMN coauthor_ids TEXT"
+        "ALTER TABLE submissions ADD COLUMN coauthor_ids TEXT",
+        "ALTER TABLE certificates ADD COLUMN template_id VARCHAR(255)"
       ];
       for (const query of mysqlAlterQueries) {
         try {
@@ -496,11 +523,25 @@ const initPromise = new Promise(async (resolve, reject) => {
               id TEXT PRIMARY KEY,
               event_id TEXT NOT NULL,
               user_id TEXT NOT NULL,
-              role TEXT CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator')) NOT NULL,
+              role TEXT CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator', 'communication_coordinator')) NOT NULL,
               axis TEXT,
               FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
               FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
               UNIQUE(event_id, user_id, role, axis)
+            )
+          `);
+
+          db.run(`
+            CREATE TABLE IF NOT EXISTS event_notifications (
+              id TEXT PRIMARY KEY,
+              event_id TEXT NOT NULL,
+              sender_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              message TEXT NOT NULL,
+              target_audience TEXT CHECK(target_audience IN ('all', 'present', 'authors', 'evaluators', 'coordinators')) NOT NULL,
+              created_at VARCHAR(50) NOT NULL,
+              FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+              FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE
             )
           `);
 
@@ -519,6 +560,17 @@ const initPromise = new Promise(async (resolve, reject) => {
           `);
 
           db.run(`
+            CREATE TABLE IF NOT EXISTS certificate_templates (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              bg_front_url TEXT,
+              bg_back_url TEXT,
+              text_template TEXT,
+              created_at TEXT NOT NULL
+            )
+          `);
+
+          db.run(`
             CREATE TABLE IF NOT EXISTS certificates (
               id TEXT PRIMARY KEY,
               event_id TEXT NOT NULL,
@@ -527,6 +579,7 @@ const initPromise = new Promise(async (resolve, reject) => {
               workload_hours INTEGER NOT NULL,
               type TEXT DEFAULT 'participation',
               presentation_title TEXT,
+              template_id TEXT,
               created_at TEXT NOT NULL,
               FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
               FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -534,14 +587,14 @@ const initPromise = new Promise(async (resolve, reject) => {
             )
           `);
 
-          // Migration for existing certificates table columns
           const alterCertColumns = [
             "ALTER TABLE certificates ADD COLUMN type TEXT DEFAULT 'participation'",
-            "ALTER TABLE certificates ADD COLUMN presentation_title TEXT"
+            "ALTER TABLE certificates ADD COLUMN presentation_title TEXT",
+            "ALTER TABLE certificates ADD COLUMN template_id TEXT"
           ];
           alterCertColumns.forEach(query => {
             db.run(query, (err) => {
-              if (err && !err.message.includes('duplicate column name') && !err.message.includes('already exists')) {
+              if (err && !err.message.includes('duplicate column name') && !err.message.includes('already exists') && !err.message.includes('duplicate column')) {
                 console.log('Alter certificates table notice:', err.message);
               }
             });
@@ -612,17 +665,17 @@ const initPromise = new Promise(async (resolve, reject) => {
             }
           });
 
-          // Migration to update CHECK constraint on event_assignments table to include organizer and event_coordinator roles
+          // Migration to update CHECK constraint on event_assignments table to include organizer, event_coordinator and communication_coordinator roles
           db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='event_assignments'", (err, row) => {
-            if (row && row.sql && !row.sql.includes('organizer')) {
-              console.log('Migrating event_assignments table for new roles...');
+            if (row && row.sql && (!row.sql.includes('organizer') || !row.sql.includes('communication_coordinator'))) {
+              console.log('Migrating event_assignments table for communication_coordinator role...');
               db.serialize(() => {
                 db.run(`
                   CREATE TABLE IF NOT EXISTS event_assignments_dg_tmp (
                     id TEXT PRIMARY KEY,
                     event_id TEXT NOT NULL,
                     user_id TEXT NOT NULL,
-                    role TEXT CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator')) NOT NULL,
+                    role TEXT CHECK(role IN ('coordinator', 'evaluator', 'organizer', 'event_coordinator', 'communication_coordinator')) NOT NULL,
                     axis TEXT,
                     FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
                     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,

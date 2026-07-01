@@ -25,7 +25,8 @@ import {
   MapPin,
   Trash2,
   Menu,
-  HelpCircle
+  HelpCircle,
+  Bell
 } from 'lucide-react';
 
 import logoLight from './assets/logo-light.png';
@@ -64,6 +65,15 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [loadingUser, setLoadingUser] = useState(!!localStorage.getItem('token'));
+  const [myAssignments, setMyAssignments] = useState([]);
+
+  // Event Notifications states
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifMessage, setNotifMessage] = useState('');
+  const [notifTargetAudience, setNotifTargetAudience] = useState('all');
+  const [notifsList, setNotifsList] = useState([]);
+  const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const [isSendingNotif, setIsSendingNotif] = useState(false);
 
   // Dashboard Sub-views: 'admin-events' | 'admin-checkin' | 'admin-submissions' | 'admin-metrics' | 'evaluator-reviews' | 'participant-events' | 'participant-submissions' | 'participant-certificates'
   const [dashboardSubView, setDashboardSubView] = useState('participant-events');
@@ -121,6 +131,22 @@ export default function App() {
 
 
 
+  const fetchMyAssignments = async (authToken) => {
+    const activeToken = authToken || token;
+    if (!activeToken) return;
+    try {
+      const res = await fetch(`${API_URL}/api/my-assignments`, {
+        headers: { 'Authorization': `Bearer ${activeToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyAssignments(data);
+      }
+    } catch (err) {
+      console.error('Error fetching my assignments:', err);
+    }
+  };
+
   const fetchUserProfile = async (authToken, skipSubViewReset = false) => {
     const activeToken = authToken || token;
     if (!activeToken) {
@@ -135,6 +161,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setUser(data);
+        fetchMyAssignments(activeToken);
         if (!skipSubViewReset) {
           // Set default dashboard view depending on role
           if (data.role === 'admin') setDashboardSubView('admin-metrics');
@@ -159,6 +186,7 @@ export default function App() {
     setUser(loggedInUser);
     localStorage.setItem('token', authToken);
     setLoadingUser(false);
+    fetchMyAssignments(authToken);
     if (loggedInUser.role === 'admin') setDashboardSubView('admin-metrics');
     else if (loggedInUser.role === 'evaluator') setDashboardSubView('evaluator-reviews');
     else setDashboardSubView('participant-events');
@@ -180,6 +208,7 @@ export default function App() {
   const handleLogout = () => {
     setToken('');
     setUser(null);
+    setMyAssignments([]);
     navigate('/');
     showToast('Logout realizado com sucesso.');
   };
@@ -1578,7 +1607,7 @@ function DashboardRouter({ user, token, subView, setSubView, showToast, refreshU
         </div>
 
         {/* Dynamic Sidebar Links depending on Role */}
-        {(user.role === 'admin' || user.role === 'moderator') && (
+        {(user.role === 'admin' || user.role === 'moderator' || myAssignments.some(as => as.role === 'event_coordinator' || as.role === 'communication_coordinator')) && (
           <>
             <div className="sidebar-section-title">Comissão</div>
             {user.role === 'admin' && (
@@ -2065,6 +2094,34 @@ function ParticipantEventsView({ user, token, showToast }) {
   const [selectedLiveEvent, setSelectedLiveEvent] = useState(null);
   const [walletReg, setWalletReg] = useState(null);
 
+  const [participantNotifications, setParticipantNotifications] = useState([]);
+  const [loadingParticipantNotifications, setLoadingParticipantNotifications] = useState(false);
+
+  const fetchParticipantNotifications = async (eventId) => {
+    setLoadingParticipantNotifications(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/notifications`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setParticipantNotifications(data);
+      }
+    } catch (err) {
+      console.error('Error fetching participant notifications:', err);
+    } finally {
+      setLoadingParticipantNotifications(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedLiveEvent) {
+      fetchParticipantNotifications(selectedLiveEvent.event_id);
+    } else {
+      setParticipantNotifications([]);
+    }
+  }, [selectedLiveEvent]);
+
   const handleDownloadReceiptPDF = async (regId) => {
     showToast('Iniciando visualização do comprovante...');
     try {
@@ -2252,6 +2309,41 @@ function ParticipantEventsView({ user, token, showToast }) {
               </button>
             </form>
           </div>
+        </div>
+
+        {/* Mural de Comunicados do Evento */}
+        <div className="glass-card" style={{ marginTop: '24px' }}>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Bell size={20} /> Comunicados do Evento
+          </h3>
+          {loadingParticipantNotifications ? (
+            <div>Carregando comunicados...</div>
+          ) : participantNotifications.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum comunicado recebido para este evento.</p>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+              {participantNotifications.map(n => (
+                <div key={n.id} style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                      <h4 style={{ fontWeight: 'bold', color: 'var(--primary-light)', margin: 0, fontSize: '0.95rem' }}>{n.title}</h4>
+                      <span className="badge badge-secondary" style={{ fontSize: '0.62rem', whiteSpace: 'nowrap' }}>
+                        {n.target_audience === 'all' ? 'Geral' :
+                         n.target_audience === 'present' ? 'Credenciado' :
+                         n.target_audience === 'authors' ? 'Autor' :
+                         n.target_audience === 'evaluators' ? 'Avaliador' : 'Comissão'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', marginBottom: '16px', lineHeight: '1.4' }}>{n.message}</p>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+                    <span>Por: {n.sender_name || 'Gestor'}</span>
+                    <span>{new Date(n.created_at).toLocaleDateString('pt-BR')} {new Date(n.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3676,7 +3768,7 @@ function AdminEventsView({ token, showToast }) {
     setEventAdditionalLinks(prev => prev.filter((_, i) => i !== index));
   };
 
-  const [thematicAxes, setThematicAxes] = useState('');
+  const [thematicAxes, setThematicAxes] = useState([]);
   const [submissionRules, setSubmissionRules] = useState('');
   const [submissionsEnabled, setSubmissionsEnabled] = useState(1);
   const [rulesFiles, setRulesFiles] = useState([]);
@@ -3729,6 +3821,13 @@ function AdminEventsView({ token, showToast }) {
   const [certBgBackUrl, setCertBgBackUrl] = useState('');
   const [showCertHelp, setShowCertHelp] = useState(false);
 
+  // New certificate templates state
+  const [certTemplates, setCertTemplates] = useState([]);
+  const [templateForm, setTemplateForm] = useState({ name: '', bg_front_url: '', bg_back_url: '', text_template: '' });
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
+  const [selectedTemplateIdLote, setSelectedTemplateIdLote] = useState('');
+  const [selectedTemplateIdIndividual, setSelectedTemplateIdIndividual] = useState('');
+
   // Issuance and preview lists
   const [issueUserEmail, setIssueUserEmail] = useState('');
   const [issueCertType, setIssueCertType] = useState('organization');
@@ -3776,11 +3875,20 @@ function AdminEventsView({ token, showToast }) {
       const res = await fetch(`${API_URL}/api/events`);
       if (res.ok) {
         const data = await res.json();
-        setEvents(data);
+        
+        let filteredData = data;
+        if (user && user.role !== 'admin' && user.role !== 'moderator') {
+          const managedEventIds = myAssignments
+            .filter(as => as.role === 'event_coordinator' || as.role === 'communication_coordinator')
+            .map(as => as.event_id);
+          filteredData = data.filter(ev => managedEventIds.includes(ev.id));
+        }
+
+        setEvents(filteredData);
 
         // If an event is selected, keep it updated
         if (selectedEventForManagement) {
-          const current = data.find(ev => ev.id === selectedEventForManagement.id);
+          const current = filteredData.find(ev => ev.id === selectedEventForManagement.id);
           if (current) {
             setSelectedEventForManagement(current);
           }
@@ -3803,7 +3911,12 @@ function AdminEventsView({ token, showToast }) {
 
   const handleSelectEventForManagement = (ev) => {
     setSelectedEventForManagement(ev);
-    setWorkspaceTab('basic');
+    const role = myAssignments.find(as => as.event_id === ev.id)?.role;
+    if (role === 'communication_coordinator' && user.role !== 'admin' && user.role !== 'moderator') {
+      setWorkspaceTab('communication');
+    } else {
+      setWorkspaceTab('basic');
+    }
 
     // Reset delete form states
     setDeleteReason('');
@@ -3841,7 +3954,7 @@ function AdminEventsView({ token, showToast }) {
     setWorkloadHours(ev.workload_hours ? ev.workload_hours.toString() : '20');
     setTransmissionLink(ev.transmission_link || '');
     setEventAdditionalLinks(ev.additional_links || []);
-    setThematicAxes(ev.thematic_axes ? ev.thematic_axes.join(', ') : '');
+    setThematicAxes(ev.thematic_axes || []);
     setSubmissionRules(ev.submission_rules || '');
     setSubmissionsEnabled(ev.submissions_enabled !== undefined ? ev.submissions_enabled : 1);
     setMaxCoauthors(ev.max_coauthors !== undefined ? ev.max_coauthors : 3);
@@ -3905,6 +4018,7 @@ function AdminEventsView({ token, showToast }) {
     fetchAssignments(ev.id);
     fetchSystemUsers();
     fetchEvaluatorsPool();
+    fetchCertTemplates();
   };
 
   const fetchSystemUsers = async () => {
@@ -3932,6 +4046,20 @@ function AdminEventsView({ token, showToast }) {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const fetchCertTemplates = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/certificates/templates`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCertTemplates(data);
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -4014,7 +4142,7 @@ function AdminEventsView({ token, showToast }) {
       banner_url: overrides.banner_url !== undefined ? overrides.banner_url : bannerUrl,
       start_date: overrides.start_date !== undefined ? overrides.start_date : startDate,
       end_date: overrides.end_date !== undefined ? overrides.end_date : endDate,
-      thematic_axes: overrides.thematic_axes !== undefined ? overrides.thematic_axes : thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+      thematic_axes: overrides.thematic_axes !== undefined ? overrides.thematic_axes : thematicAxes,
       registration_categories: overrides.registration_categories !== undefined ? overrides.registration_categories : regCategories,
       submission_rules: overrides.submission_rules !== undefined ? overrides.submission_rules : submissionRules,
       workload_hours: overrides.workload_hours !== undefined ? parseInt(overrides.workload_hours) || parseInt(workloadHours) : parseInt(workloadHours),
@@ -4156,7 +4284,8 @@ function AdminEventsView({ token, showToast }) {
           user_email: issueUserEmail.trim(),
           type: issueCertType,
           workload_hours: parseInt(issueWorkload) || 20,
-          presentation_title: (issueCertType === 'presentation' || issueCertType === 'submission' || issueCertType === 'workshop') ? issuePresentationTitle.trim() : null
+          presentation_title: (issueCertType === 'presentation' || issueCertType === 'submission' || issueCertType === 'workshop') ? issuePresentationTitle.trim() : null,
+          template_id: selectedTemplateIdIndividual || null
         })
       });
 
@@ -4185,8 +4314,12 @@ function AdminEventsView({ token, showToast }) {
       const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/certificates/generate`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({
+          template_id: selectedTemplateIdLote || null
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -4756,7 +4889,7 @@ function AdminEventsView({ token, showToast }) {
       await saveEventDetails({
         submissions_enabled: submissionsEnabled,
         submission_rules: submissionRules,
-        thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+        thematic_axes: thematicAxes,
         rules_files: rulesFiles,
         max_coauthors: maxCoauthors,
         submission_start_date: submissionStartDate || null,
@@ -4798,7 +4931,7 @@ function AdminEventsView({ token, showToast }) {
           await saveEventDetails({
             submissions_enabled: submissionsEnabled,
             submission_rules: submissionRules,
-            thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+            thematic_axes: thematicAxes,
             rules_files: updated,
             max_coauthors: maxCoauthors,
             submission_start_date: submissionStartDate || null,
@@ -4824,7 +4957,7 @@ function AdminEventsView({ token, showToast }) {
       await saveEventDetails({
         submissions_enabled: submissionsEnabled,
         submission_rules: submissionRules,
-        thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
+        thematic_axes: thematicAxes,
         rules_files: updated,
         max_coauthors: maxCoauthors,
         submission_start_date: submissionStartDate || null,
@@ -4835,160 +4968,221 @@ function AdminEventsView({ token, showToast }) {
     };
 
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div className="glass-card">
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Regras & Eixos Temáticos</h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Regras & Eixos Temáticos</h3>
 
-            <form onSubmit={handleSaveSubmissionConfig}>
-              <div className="form-group" style={{ marginBottom: '15px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
-                  <input
-                    type="checkbox"
-                    checked={submissionsEnabled === 1}
-                    onChange={(e) => setSubmissionsEnabled(e.target.checked ? 1 : 0)}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  Habilitar Envio de Trabalhos / Chamada Científica
-                </label>
-              </div>
+          <form onSubmit={handleSaveSubmissionConfig}>
+            <div className="form-group" style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={submissionsEnabled === 1}
+                  onChange={(e) => setSubmissionsEnabled(e.target.checked ? 1 : 0)}
+                  style={{ width: '18px', height: '18px' }}
+                />
+                Habilitar Envio de Trabalhos / Chamada Científica
+              </label>
+            </div>
 
-              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '15px' }}>
-                <div>
-                  <label className="form-label">Eixos Temáticos (separados por vírgula) *</label>
+            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '15px' }}>
+              <div>
+                <label className="form-label">Eixos Temáticos (adicione individualmente) *</label>
+                <div style={{ 
+                  display: 'flex', 
+                  flexWrap: 'wrap', 
+                  gap: '8px', 
+                  marginBottom: '8px', 
+                  minHeight: '36px', 
+                  padding: '6px 10px', 
+                  border: '1px solid var(--border)', 
+                  borderRadius: 'var(--radius-sm)', 
+                  background: 'rgba(255, 255, 255, 0.03)' 
+                }}>
+                  {thematicAxes.length === 0 ? (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Nenhum eixo adicionado ainda. Insira abaixo.</span>
+                  ) : (
+                    thematicAxes.map((axis, idx) => (
+                      <span key={idx} className="badge badge-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px' }}>
+                        {axis}
+                        <button 
+                          type="button" 
+                          onClick={() => setThematicAxes(thematicAxes.filter((_, i) => i !== idx))}
+                          style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, fontSize: '0.95rem', lineHeight: 1, fontWeight: 'bold' }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
+                    id="new-axis-input"
                     className="form-input"
-                    placeholder="Ex: Alfabetização Matemática, Prática Pedagógica"
-                    value={thematicAxes}
-                    onChange={(e) => setThematicAxes(e.target.value)}
+                    placeholder="Nome do eixo (ex: Didática da Matemática)..."
+                    style={{ flex: 1 }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const val = e.target.value.trim();
+                        if (val) {
+                          if (thematicAxes.includes(val)) {
+                            showToast('Este eixo temático já foi adicionado', 'warning');
+                            return;
+                          }
+                          setThematicAxes([...thematicAxes, val]);
+                          e.target.value = '';
+                        }
+                      }
+                    }}
                   />
-                </div>
-                <div>
-                  <label className="form-label">Máx. Coautores *</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="20"
-                    className="form-input"
-                    value={maxCoauthors}
-                    onChange={(e) => setMaxCoauthors(parseInt(e.target.value, 10) || 0)}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div>
-                  <label className="form-label">Prazo de Início de Envio</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={submissionStartDate}
-                    onChange={(e) => setSubmissionStartDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Prazo de Fim de Envio</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={submissionDeadline}
-                    onChange={(e) => setSubmissionDeadline(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div>
-                  <label className="form-label">Prazo Limite de Avaliação</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={evaluationDeadline}
-                    onChange={(e) => setEvaluationDeadline(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Prazo dos Resultados Finais</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={resultsDeadline}
-                    onChange={(e) => setResultsDeadline(e.target.value)}
-                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const input = document.getElementById('new-axis-input');
+                      const val = input ? input.value.trim() : '';
+                      if (val) {
+                        if (thematicAxes.includes(val)) {
+                          showToast('Este eixo temático já foi adicionado', 'warning');
+                          return;
+                        }
+                        setThematicAxes([...thematicAxes, val]);
+                        input.value = '';
+                      }
+                    }}
+                    style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
-
-              <div className="form-group">
-                <label className="form-label">Regras e Instruções para Submissão</label>
-                <textarea
-                  className="form-textarea"
-                  placeholder="Insira as diretrizes de envio, formatação, número máximo de páginas, etc."
-                  style={{ minHeight: '80px' }}
-                  value={submissionRules}
-                  onChange={(e) => setSubmissionRules(e.target.value)}
+              <div>
+                <label className="form-label">Máx. Coautores *</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="20"
+                  className="form-input"
+                  value={maxCoauthors}
+                  onChange={(e) => setMaxCoauthors(parseInt(e.target.value, 10) || 0)}
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Salvar Ajustes de Submissão</button>
-            </form>
-          </div>
+            </div>
 
-          <div className="glass-card">
-            <h3 style={{ fontSize: '1.2rem', color: 'var(--primary)', marginBottom: '16px' }}>Arquivos e Modelos do Evento</h3>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Faça upload de editais, templates de formatação ou outros arquivos essenciais para autores e avaliadores.
-            </p>
-
-            <form onSubmit={handleAddRulesFile} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px', background: 'var(--surface-secondary)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
-              <div style={{ gridColumn: 'span 2' }}>
-                <label className="form-label" style={{ fontSize: '0.8rem' }}>Nome de Exibição do Documento</label>
+            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div>
+                <label className="form-label">Prazo de Início de Envio</label>
                 <input
-                  type="text"
+                  type="date"
                   className="form-input"
-                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                  placeholder="Ex: Edital de Submissão, Template de Resumo"
-                  value={newRulesFileName}
-                  onChange={(e) => setNewRulesFileName(e.target.value)}
+                  value={submissionStartDate}
+                  onChange={(e) => setSubmissionStartDate(e.target.value)}
                 />
               </div>
               <div>
-                <label className="form-label" style={{ fontSize: '0.8rem' }}>Arquivo *</label>
+                <label className="form-label">Prazo de Fim de Envio</label>
                 <input
-                  type="file"
-                  id="rules-file-input"
+                  type="date"
                   className="form-input"
-                  style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-                  required
-                  onChange={(e) => setNewRulesFile(e.target.files[0])}
+                  value={submissionDeadline}
+                  onChange={(e) => setSubmissionDeadline(e.target.value)}
                 />
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '8px 12px', fontSize: '0.82rem' }} disabled={uploadingRulesFile}>
-                  {uploadingRulesFile ? 'Enviando...' : 'Adicionar'}
-                </button>
-              </div>
-            </form>
+            </div>
 
-            {rulesFiles.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem', textAlign: 'center' }}>Nenhum arquivo enviado.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {rulesFiles.map((file, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '0.85rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FileText size={16} style={{ color: 'var(--primary-light)' }} />
-                      <a href={`${API_URL}${file.url}`} target="_blank" rel="noreferrer" style={{ fontWeight: 600, color: 'var(--primary)', textDecoration: 'none' }}>
-                        {file.name}
-                      </a>
-                    </div>
-                    <button type="button" className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.72rem' }} onClick={() => handleRemoveRulesFile(idx)}>
-                      Remover
-                    </button>
-                  </div>
-                ))}
+            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div>
+                <label className="form-label">Prazo Limite de Avaliação</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={evaluationDeadline}
+                  onChange={(e) => setEvaluationDeadline(e.target.value)}
+                />
               </div>
-            )}
-          </div>
+              <div>
+                <label className="form-label">Prazo dos Resultados Finais</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={resultsDeadline}
+                  onChange={(e) => setResultsDeadline(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Regras e Instruções para Submissão</label>
+              <textarea
+                className="form-textarea"
+                placeholder="Insira as diretrizes de envio, formatação, número máximo de páginas, etc."
+                style={{ minHeight: '80px' }}
+                value={submissionRules}
+                onChange={(e) => setSubmissionRules(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Salvar Ajustes de Submissão</button>
+          </form>
+        </div>
+
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.2rem', color: 'var(--primary)', marginBottom: '16px' }}>Arquivos e Modelos do Evento</h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Faça upload de editais, templates de formatação ou outros arquivos essenciais para autores e avaliadores.
+          </p>
+
+          <form onSubmit={handleAddRulesFile} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px', background: 'var(--surface-secondary)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+            <div style={{ gridColumn: 'span 2' }}>
+              <label className="form-label" style={{ fontSize: '0.8rem' }}>Nome de Exibição do Documento</label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                placeholder="Ex: Edital de Submissão, Template de Resumo"
+                value={newRulesFileName}
+                onChange={(e) => setNewRulesFileName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="form-label" style={{ fontSize: '0.8rem' }}>Arquivo *</label>
+              <input
+                type="file"
+                id="rules-file-input"
+                className="form-input"
+                style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                required
+                onChange={(e) => setNewRulesFile(e.target.files[0])}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '8px 12px', fontSize: '0.82rem' }} disabled={uploadingRulesFile}>
+                {uploadingRulesFile ? 'Enviando...' : 'Adicionar'}
+              </button>
+            </div>
+          </form>
+
+          {rulesFiles.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem', textAlign: 'center' }}>Nenhum arquivo enviado.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {rulesFiles.map((file, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <FileText size={16} style={{ color: 'var(--primary-light)' }} />
+                    <a href={`${API_URL}${file.url}`} target="_blank" rel="noreferrer" style={{ fontWeight: 600, color: 'var(--primary)', textDecoration: 'none' }}>
+                      {file.name}
+                    </a>
+                  </div>
+                  <button type="button" className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.72rem' }} onClick={() => handleRemoveRulesFile(idx)}>
+                    Remover
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -5087,21 +5281,7 @@ function AdminEventsView({ token, showToast }) {
   };
 
   const renderCertificatesTab = () => {
-    const handleSaveTemplates = async (e) => {
-      e.preventDefault();
-      await saveEventDetails({
-        cert_border_color: certBorderColor,
-        cert_signature_name: certSignatureName,
-        cert_signature_role: certSignatureRole,
-        cert_text_template: certTextTemplate,
-        cert_text_organization: certTextOrganization,
-        cert_text_presentation: certTextPresentation,
-        cert_text_guest: certTextGuest,
-        cert_bg_front_url: certBgFrontUrl,
-        cert_bg_back_url: certBgBackUrl
-      });
-    };
-
+    // Add template upload image handler helper
     const handleBgImageUpload = async (file, type) => {
       if (!file) return;
       const formData = new FormData();
@@ -5119,9 +5299,9 @@ function AdminEventsView({ token, showToast }) {
         const data = await res.json();
         if (res.ok) {
           if (type === 'front') {
-            setCertBgFrontUrl(data.image_url);
+            setTemplateForm(prev => ({ ...prev, bg_front_url: data.image_url }));
           } else {
-            setCertBgBackUrl(data.image_url);
+            setTemplateForm(prev => ({ ...prev, bg_back_url: data.image_url }));
           }
           showToast('Imagem de fundo enviada com sucesso!');
         } else {
@@ -5130,6 +5310,74 @@ function AdminEventsView({ token, showToast }) {
       } catch (err) {
         console.error(err);
         showToast('Erro de conexão ao enviar imagem', 'danger');
+      }
+    };
+
+    const handleSaveTemplate = async (e) => {
+      e.preventDefault();
+      if (!templateForm.name) {
+        showToast('O nome do certificado é obrigatório.', 'danger');
+        return;
+      }
+
+      try {
+        const url = editingTemplateId 
+          ? `${API_URL}/api/certificates/templates/${editingTemplateId}`
+          : `${API_URL}/api/certificates/templates`;
+        
+        const method = editingTemplateId ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(templateForm)
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          showToast(editingTemplateId ? 'Template atualizado com sucesso!' : 'Template criado com sucesso!');
+          setTemplateForm({ name: '', bg_front_url: '', bg_back_url: '', text_template: '' });
+          setEditingTemplateId(null);
+          fetchCertTemplates();
+        } else {
+          showToast(data.error || 'Erro ao salvar template', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro de rede ao salvar template', 'danger');
+      }
+    };
+
+    const handleEditClick = (tpl) => {
+      setEditingTemplateId(tpl.id);
+      setTemplateForm({
+        name: tpl.name || '',
+        bg_front_url: tpl.bg_front_url || '',
+        bg_back_url: tpl.bg_back_url || '',
+        text_template: tpl.text_template || ''
+      });
+    };
+
+    const handleDeleteClick = async (id) => {
+      if (!window.confirm('Tem certeza de que deseja excluir este modelo de certificado?')) return;
+      try {
+        const res = await fetch(`${API_URL}/api/certificates/templates/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          showToast('Template excluído com sucesso!');
+          fetchCertTemplates();
+        } else {
+          const data = await res.json();
+          showToast(data.error || 'Erro ao excluir template', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro de rede ao excluir template', 'danger');
       }
     };
 
@@ -5152,114 +5400,62 @@ function AdminEventsView({ token, showToast }) {
 
     return (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
-
-        {/* Templates Panel */}
-        <div className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', margin: 0 }}>Modelos de Certificados</h3>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setShowCertHelp(!showCertHelp)}
-              style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px' }}
-            >
-              <HelpCircle size={16} /> {showCertHelp ? 'Fechar Ajuda' : 'Ajuda / Tags'}
-            </button>
-          </div>
-
-          {showCertHelp && (
-            <div className="glass-card" style={{ background: 'rgba(59, 130, 246, 0.05)', border: '1px solid var(--primary-light)', padding: '15px', marginBottom: '20px', borderRadius: 'var(--radius-sm)' }}>
-              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)', marginBottom: '10px' }}>
-                <Info size={18} /> Como Configurar os Certificados?
-              </h4>
-              <p style={{ fontSize: '0.82rem', lineHeight: '1.4', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                Você pode personalizar os textos e o visual dos certificados. Se desejar, envie imagens de fundo (PNG frente e verso) para que a plataforma insira apenas os textos por cima do seu layout personalizado!
-              </p>
-              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '5px' }}>Tags de Substituição Disponíveis:</h5>
-              <ul style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', paddingLeft: '20px', lineHeight: '1.5', margin: '0 0 10px 0' }}>
-                <li><strong>{`{nome}`}</strong>: Nome completo do destinatário.</li>
-                <li><strong>{`{cpf}`}</strong>: CPF formatado do destinatário.</li>
-                <li><strong>{`{evento}`}</strong>: Nome oficial do evento.</li>
-                <li><strong>{`{periodo}`}</strong>: Período do evento (ex: "no dia 10 de maio" ou "no período de 10 a 12 de maio").</li>
-                <li><strong>{`{carga_horaria}`}</strong>: Carga horária do certificado (ex: 20).</li>
-                <li><strong>{`{titulo_trabalho}`}</strong>: Título do trabalho (apenas para apresentação/submissão e oficinas).</li>
-              </ul>
-              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '5px' }}>Imagens de Fundo:</h5>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
-                A imagem deve estar no formato <strong>PNG em modo paisagem (A4)</strong>. Se você configurar uma imagem de frente, o sistema ocultará os detalhes visuais padrão da plataforma e inserirá apenas os textos (no centro), a assinatura e o código autenticador. Se configurar uma imagem de verso, o certificado gerado terá 2 páginas.
-              </p>
+        
+        {/* Painel de Templates */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          <div className="glass-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', margin: 0 }}>
+                {editingTemplateId ? '✏️ Editar Modelo' : '🆕 Novo Modelo de Certificado'}
+              </h3>
+              {editingTemplateId && (
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => { setEditingTemplateId(null); setTemplateForm({ name: '', bg_front_url: '', bg_back_url: '', text_template: '' }); }}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                >
+                  Cancelar Edição
+                </button>
+              )}
             </div>
-          )}
 
-          <form onSubmit={handleSaveTemplates}>
-            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '15px' }}>
-              <div>
-                <label className="form-label">Cor Borda</label>
-                <input
-                  type="color"
-                  value={certBorderColor}
-                  onChange={(e) => setCertBorderColor(e.target.value)}
-                  style={{ width: '100%', height: '36px', padding: '2px', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
-                />
-              </div>
-              <div>
-                <label className="form-label">Hexadecimal</label>
+            <form onSubmit={handleSaveTemplate}>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label">Nome do Certificado *</label>
                 <input
                   type="text"
                   className="form-input"
-                  value={certBorderColor}
-                  onChange={(e) => setCertBorderColor(e.target.value)}
-                  style={{ fontFamily: 'monospace' }}
+                  placeholder="Ex: Certificado de Palestrante G-TERCOA"
+                  required
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
                 />
               </div>
-            </div>
 
-            <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-              <div>
-                <label className="form-label">Assinatura (Nome)</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={certSignatureName}
-                  onChange={(e) => setCertSignatureName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="form-label">Assinatura (Cargo)</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={certSignatureRole}
-                  onChange={(e) => setCertSignatureRole(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
-              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Imagens de Fundo do Certificado (PNG)</h4>
-
-              <div className="form-group" style={{ marginBottom: '10px' }}>
-                <label className="form-label" style={{ fontSize: '0.85rem' }}>Frente do Certificado (.png)</label>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label">Frente do Certificado (Upload PNG) *</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="URL da imagem da frente do certificado..."
-                    value={certBgFrontUrl}
-                    onChange={(e) => setCertBgFrontUrl(e.target.value)}
-                    style={{ fontSize: '0.85rem', padding: '8px' }}
+                    placeholder="URL da imagem da frente (.png)..."
+                    value={templateForm.bg_front_url}
+                    onChange={(e) => setTemplateForm({ ...templateForm, bg_front_url: e.target.value })}
+                    style={{ fontSize: '0.85rem' }}
                   />
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => document.getElementById('cert-bg-front-file').click()}
+                    onClick={() => document.getElementById('template-bg-front-file').click()}
                     style={{ padding: '8px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
                   >
                     Upload
                   </button>
                   <input
                     type="file"
-                    id="cert-bg-front-file"
+                    id="template-bg-front-file"
                     accept="image/png"
                     style={{ display: 'none' }}
                     onChange={(e) => handleBgImageUpload(e.target.files[0], 'front')}
@@ -5267,91 +5463,104 @@ function AdminEventsView({ token, showToast }) {
                 </div>
               </div>
 
-              <div className="form-group" style={{ marginBottom: '15px' }}>
-                <label className="form-label" style={{ fontSize: '0.85rem' }}>Verso do Certificado (.png - Opcional)</label>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label">Verso do Certificado (Upload PNG - Opcional)</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="URL da imagem do verso do certificado..."
-                    value={certBgBackUrl}
-                    onChange={(e) => setCertBgBackUrl(e.target.value)}
-                    style={{ fontSize: '0.85rem', padding: '8px' }}
+                    placeholder="URL da imagem do verso (.png)..."
+                    value={templateForm.bg_back_url}
+                    onChange={(e) => setTemplateForm({ ...templateForm, bg_back_url: e.target.value })}
+                    style={{ fontSize: '0.85rem' }}
                   />
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => document.getElementById('cert-bg-back-file').click()}
+                    onClick={() => document.getElementById('template-bg-back-file').click()}
                     style={{ padding: '8px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
                   >
                     Upload
                   </button>
                   <input
                     type="file"
-                    id="cert-bg-back-file"
+                    id="template-bg-back-file"
                     accept="image/png"
                     style={{ display: 'none' }}
                     onChange={(e) => handleBgImageUpload(e.target.files[0], 'back')}
                   />
                 </div>
               </div>
-            </div>
 
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px' }}>
-              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Personalização de Texto</h4>
-
-              <div className="form-group">
-                <label className="form-label"><strong>1. Participante</strong></label>
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label">Personalização de Texto *</label>
                 <textarea
                   className="form-textarea"
-                  value={certTextTemplate}
-                  onChange={(e) => setCertTextTemplate(e.target.value)}
-                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
+                  rows={4}
+                  required
+                  placeholder="Escreva o texto padrão do certificado..."
+                  value={templateForm.text_template}
+                  onChange={(e) => setTemplateForm({ ...templateForm, text_template: e.target.value })}
+                  style={{ minHeight: '100px', fontSize: '0.85rem' }}
                 />
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
               </div>
 
-              <div className="form-group" style={{ marginTop: '10px' }}>
-                <label className="form-label"><strong>2. Comissão Organizadora</strong></label>
-                <textarea
-                  className="form-textarea"
-                  value={certTextOrganization}
-                  onChange={(e) => setCertTextOrganization(e.target.value)}
-                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
-                />
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
+              <div style={{ background: 'rgba(59, 130, 246, 0.05)', border: '1px dashed var(--primary-light)', padding: '10px 14px', borderRadius: '4px', marginBottom: '15px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', color: 'var(--primary)', marginBottom: '5px' }}>📌 Tags Disponíveis para Personalização:</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', lineHeight: '1.4' }}>
+                  Use as tags abaixo no texto. Elas serão trocadas pelos dados reais ao emitir:<br />
+                  <strong>{`{nome}`}</strong>: Nome do destinatário<br />
+                  <strong>{`{cpf}`}</strong>: CPF do destinatário<br />
+                  <strong>{`{evento}`}</strong>: Nome do evento<br />
+                  <strong>{`{periodo}`}</strong>: Data/Período do evento<br />
+                  <strong>{`{carga_horaria}`}</strong>: Carga horária em horas<br />
+                  <strong>{`{titulo_trabalho}`}</strong>: Nome do trabalho / palestra (se aplicável)
+                </span>
               </div>
 
-              <div className="form-group" style={{ marginTop: '10px' }}>
-                <label className="form-label"><strong>3. Apresentador de Trabalho</strong></label>
-                <textarea
-                  className="form-textarea"
-                  value={certTextPresentation}
-                  onChange={(e) => setCertTextPresentation(e.target.value)}
-                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
-                />
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}, {titulo_trabalho}`}</span>
-              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+                {editingTemplateId ? 'Salvar Alterações' : 'Criar Modelo'}
+              </button>
+            </form>
+          </div>
 
-              <div className="form-group" style={{ marginTop: '10px' }}>
-                <label className="form-label"><strong>4. Palestrante / Convidado</strong></label>
-                <textarea
-                  className="form-textarea"
-                  value={certTextGuest}
-                  onChange={(e) => setCertTextGuest(e.target.value)}
-                  style={{ minHeight: '120px', fontSize: '0.85rem' }}
-                />
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tags: {`{nome}, {cpf}, {evento}, {periodo}, {carga_horaria}`}</span>
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.1rem', color: 'var(--primary)', marginBottom: '12px' }}>📋 Modelos Cadastrados</h3>
+            {certTemplates.length === 0 ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Nenhum modelo cadastrado ainda.</p>
+            ) : (
+              <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                <table className="table" style={{ fontSize: '0.8rem', width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: '6px' }}>Nome</th>
+                      <th style={{ padding: '6px', textAlign: 'center' }}>Frente</th>
+                      <th style={{ padding: '6px', textAlign: 'center' }}>Verso</th>
+                      <th style={{ padding: '6px', textAlign: 'right' }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {certTemplates.map(tpl => (
+                      <tr key={tpl.id}>
+                        <td style={{ padding: '6px', fontWeight: 600 }}>{tpl.name}</td>
+                        <td style={{ padding: '6px', textAlign: 'center' }}>{tpl.bg_front_url ? '🟢' : '🔴'}</td>
+                        <td style={{ padding: '6px', textAlign: 'center' }}>{tpl.bg_back_url ? '🟢' : '🔴'}</td>
+                        <td style={{ padding: '6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button className="btn btn-secondary" onClick={() => handleEditClick(tpl)} style={{ padding: '2px 6px', fontSize: '0.7rem', marginRight: '4px' }}>✏️</button>
+                          <button className="btn btn-danger" onClick={() => handleDeleteClick(tpl.id)} style={{ padding: '2px 6px', fontSize: '0.7rem' }}>🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '15px' }}>Salvar Templates</button>
-          </form>
+            )}
+          </div>
         </div>
 
-        {/* Issuance and listing Panel */}
+        {/* Emissão e Listagem */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
+          
           <div className="glass-card">
             <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Emissão de Certificados</h3>
 
@@ -5361,6 +5570,22 @@ function AdminEventsView({ token, showToast }) {
               <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
                 Emite certificados em massa para os inscritos que tiveram presença confirmada (check-in) e ainda não possuem certificados de participação.
               </p>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Escolha o Modelo de Certificado *</label>
+                <select
+                  className="form-select"
+                  value={selectedTemplateIdLote}
+                  onChange={(e) => setSelectedTemplateIdLote(e.target.value)}
+                  style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                >
+                  <option value="">-- Modelo Padrão do Sistema (Sem Imagem) --</option>
+                  {certTemplates.map(tpl => (
+                    <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <button
                 type="button"
                 className="btn btn-primary"
@@ -5377,6 +5602,21 @@ function AdminEventsView({ token, showToast }) {
               <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>B. Emissão Individual Customizada</h4>
 
               <form onSubmit={handleIssueCertificate}>
+                <div className="form-group" style={{ marginBottom: '10px' }}>
+                  <label className="form-label" style={{ fontSize: '0.85rem' }}>Escolha o Modelo de Certificado *</label>
+                  <select
+                    className="form-select"
+                    value={selectedTemplateIdIndividual}
+                    onChange={(e) => setSelectedTemplateIdIndividual(e.target.value)}
+                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                  >
+                    <option value="">-- Modelo Padrão do Sistema (Sem Imagem) --</option>
+                    {certTemplates.map(tpl => (
+                      <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="form-group" style={{ marginBottom: '10px' }}>
                   <label className="form-label" style={{ fontSize: '0.85rem' }}>Tipo do Certificado</label>
                   <select
@@ -5524,13 +5764,13 @@ function AdminEventsView({ token, showToast }) {
               <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nenhum certificado emitido.</div>
             ) : (
               <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                <table className="custom-table" style={{ fontSize: '0.8rem' }}>
+                <table className="custom-table" style={{ fontSize: '0.8rem', width: '100%' }}>
                   <thead>
                     <tr>
-                      <th>Inscrito</th>
-                      <th>Tipo</th>
-                      <th>Carga</th>
-                      <th>PDF</th>
+                      <th style={{ textAlign: 'left' }}>Inscrito</th>
+                      <th style={{ textAlign: 'left' }}>Tipo</th>
+                      <th style={{ textAlign: 'left' }}>Carga</th>
+                      <th style={{ textAlign: 'right' }}>PDF</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -5547,7 +5787,7 @@ function AdminEventsView({ token, showToast }) {
                           </span>
                         </td>
                         <td>{c.workload_hours}h</td>
-                        <td>
+                        <td style={{ textAlign: 'right' }}>
                           <button
                             className="btn btn-secondary"
                             style={{ padding: '3px 6px', fontSize: '0.72rem' }}
@@ -5565,6 +5805,7 @@ function AdminEventsView({ token, showToast }) {
           </div>
 
         </div>
+
       </div>
     );
   };
@@ -5579,6 +5820,152 @@ function AdminEventsView({ token, showToast }) {
         fetchAssignments={fetchAssignments}
         usersPool={systemUsers}
       />
+    );
+  };
+
+  const fetchEventNotifications = async (eventId) => {
+    setLoadingNotifs(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/notifications`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifsList(data);
+      }
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    } finally {
+      setLoadingNotifs(false);
+    }
+  };
+
+  const handleSendNotification = async (e) => {
+    e.preventDefault();
+    if (!notifTitle.trim() || !notifMessage.trim()) {
+      showToast('Preencha o título e a mensagem', 'warning');
+      return;
+    }
+    setIsSendingNotif(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${selectedEventForManagement.id}/notifications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: notifTitle,
+          message: notifMessage,
+          target_audience: notifTargetAudience
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Comunicado enviado com sucesso!');
+        setNotifTitle('');
+        setNotifMessage('');
+        setNotifTargetAudience('all');
+        fetchEventNotifications(selectedEventForManagement.id);
+      } else {
+        showToast(data.error || 'Erro ao enviar comunicado', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de conexão', 'danger');
+    } finally {
+      setIsSendingNotif(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedEventForManagement && workspaceTab === 'communication') {
+      fetchEventNotifications(selectedEventForManagement.id);
+    }
+  }, [workspaceTab, selectedEventForManagement]);
+
+  const renderCommunicationTab = () => {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Novo Comunicado</h3>
+          <form onSubmit={handleSendNotification}>
+            <div className="form-group">
+              <label className="form-label">Título / Assunto *</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="Ex: Prorrogada a data de submissão"
+                value={notifTitle}
+                onChange={(e) => setNotifTitle(e.target.value)}
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Público-Alvo *</label>
+              <select 
+                className="form-select"
+                value={notifTargetAudience}
+                onChange={(e) => setNotifTargetAudience(e.target.value)}
+                required
+              >
+                <option value="all">Todos os Inscritos</option>
+                <option value="present">Apenas Credenciados (Presentes)</option>
+                <option value="authors">Apenas Autores (Com Trabalhos Enviados)</option>
+                <option value="evaluators">Apenas Avaliadores Científicos</option>
+                <option value="coordinators">Apenas Coordenadores de Eixo</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Mensagem / Conteúdo *</label>
+              <textarea 
+                className="form-textarea" 
+                placeholder="Escreva aqui a mensagem do comunicado aos usuários..."
+                style={{ minHeight: '150px' }}
+                value={notifMessage}
+                onChange={(e) => setNotifMessage(e.target.value)}
+                required
+              />
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={isSendingNotif}>
+              {isSendingNotif ? 'Enviando...' : 'Enviar Comunicado'}
+            </button>
+          </form>
+        </div>
+
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Histórico de Comunicados</h3>
+          {loadingNotifs ? (
+            <div>Carregando histórico...</div>
+          ) : notifsList.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem', textAlign: 'center' }}>Nenhum comunicado enviado ainda.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', maxHeight: '500px', overflowY: 'auto', paddingRight: '5px' }}>
+              {notifsList.map(n => (
+                <div key={n.id} style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontWeight: 'bold', color: 'var(--primary-light)' }}>{n.title}</span>
+                    <span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>
+                      {n.target_audience === 'all' ? 'Todos' :
+                       n.target_audience === 'present' ? 'Credenciados' :
+                       n.target_audience === 'authors' ? 'Autores' :
+                       n.target_audience === 'evaluators' ? 'Avaliadores' : 'Coordenadores'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', marginBottom: '10px' }}>{n.message}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    <span>Por: {n.sender_name || 'Gestor'}</span>
+                    <span>{new Date(n.created_at).toLocaleString('pt-BR')}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -5792,158 +6179,186 @@ function AdminEventsView({ token, showToast }) {
           </div>
 
           {/* Nav Tabs */}
-          <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid var(--border)', paddingBottom: '8px', overflowX: 'auto' }}>
-            <button
-              style={tabStyle(workspaceTab === 'basic')}
-              onClick={() => setWorkspaceTab('basic')}
-            >
-              <Info size={16} /> Informações Básicas
-            </button>
-            <button
-              style={tabStyle(workspaceTab === 'guests')}
-              onClick={() => setWorkspaceTab('guests')}
-            >
-              <Users size={16} /> Convidados
-            </button>
-            <button
-              style={tabStyle(workspaceTab === 'activities')}
-              onClick={() => setWorkspaceTab('activities')}
-            >
-              <Calendar size={16} /> Programação
-            </button>
-            <button
-              style={tabStyle(workspaceTab === 'submissions')}
-              onClick={() => setWorkspaceTab('submissions')}
-            >
-              <BookOpen size={16} /> Envio de Trabalhos
-            </button>
-            <button
-              style={tabStyle(workspaceTab === 'checkin')}
-              onClick={() => setWorkspaceTab('checkin')}
-            >
-              <CheckCircle size={16} /> Credenciamento & Inscrições
-            </button>
-            <button
-              style={tabStyle(workspaceTab === 'assignments')}
-              onClick={() => setWorkspaceTab('assignments')}
-            >
-              <Users size={16} /> Comissão & Avaliadores
-            </button>
-            <button
-              style={tabStyle(workspaceTab === 'certificates')}
-              onClick={() => setWorkspaceTab('certificates')}
-            >
-              <Award size={16} /> Certificados
-            </button>
-            <button
-              style={{
-                ...tabStyle(workspaceTab === 'delete'),
-                color: workspaceTab === 'delete' ? '#ef4444' : 'var(--text-secondary)'
-              }}
-              onClick={() => setWorkspaceTab('delete')}
-            >
-              <Trash2 size={16} /> Excluir Evento
-            </button>
-          </div>
+          {(() => {
+            const currentEventRole = myAssignments.find(as => as.event_id === selectedEventForManagement.id)?.role;
+            const isEventAdminOrMgr = user && (user.role === 'admin' || user.role === 'moderator' || currentEventRole === 'event_coordinator');
+            const isCommCoordinator = currentEventRole === 'communication_coordinator';
 
-          {/* Tab content */}
-          <div style={{ marginTop: '10px' }}>
-            {workspaceTab === 'basic' && renderBasicInfoTab()}
-            {workspaceTab === 'guests' && renderGuestsTab()}
-            {workspaceTab === 'activities' && renderActivitiesTab()}
-            {workspaceTab === 'submissions' && renderSubmissionsTab()}
-            {workspaceTab === 'checkin' && renderCheckinTab()}
-            {workspaceTab === 'assignments' && renderAssignmentsTab()}
-            {workspaceTab === 'certificates' && renderCertificatesTab()}
-            {workspaceTab === 'delete' && renderDeleteEventTab()}
-          </div>
+            return (
+              <>
+                <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid var(--border)', paddingBottom: '8px', overflowX: 'auto' }}>
+                  {isEventAdminOrMgr && (
+                    <>
+                      <button
+                        style={tabStyle(workspaceTab === 'basic')}
+                        onClick={() => setWorkspaceTab('basic')}
+                      >
+                        <Info size={16} /> Informações Básicas
+                      </button>
+                      <button
+                        style={tabStyle(workspaceTab === 'guests')}
+                        onClick={() => setWorkspaceTab('guests')}
+                      >
+                        <Users size={16} /> Convidados
+                      </button>
+                      <button
+                        style={tabStyle(workspaceTab === 'activities')}
+                        onClick={() => setWorkspaceTab('activities')}
+                      >
+                        <Calendar size={16} /> Programação
+                      </button>
+                      <button
+                        style={tabStyle(workspaceTab === 'submissions')}
+                        onClick={() => setWorkspaceTab('submissions')}
+                      >
+                        <BookOpen size={16} /> Envio de Trabalhos
+                      </button>
+                      <button
+                        style={tabStyle(workspaceTab === 'checkin')}
+                        onClick={() => setWorkspaceTab('checkin')}
+                      >
+                        <CheckCircle size={16} /> Credenciamento & Inscrições
+                      </button>
+                      <button
+                        style={tabStyle(workspaceTab === 'assignments')}
+                        onClick={() => setWorkspaceTab('assignments')}
+                      >
+                        <Users size={16} /> Comissão & Avaliadores
+                      </button>
+                      <button
+                        style={tabStyle(workspaceTab === 'certificates')}
+                        onClick={() => setWorkspaceTab('certificates')}
+                      >
+                        <Award size={16} /> Certificados
+                      </button>
+                    </>
+                  )}
+                  {(isEventAdminOrMgr || isCommCoordinator) && (
+                    <button
+                      style={tabStyle(workspaceTab === 'communication')}
+                      onClick={() => setWorkspaceTab('communication')}
+                    >
+                      <Bell size={16} /> Comunicação
+                    </button>
+                  )}
+                  {user.role === 'admin' && (
+                    <button
+                      style={{
+                        ...tabStyle(workspaceTab === 'delete'),
+                        color: workspaceTab === 'delete' ? '#ef4444' : 'var(--text-secondary)'
+                      }}
+                      onClick={() => setWorkspaceTab('delete')}
+                    >
+                      <Trash2 size={16} /> Excluir Evento
+                    </button>
+                  )}
+                </div>
+
+                {/* Tab content */}
+                <div style={{ marginTop: '10px' }}>
+                  {workspaceTab === 'basic' && isEventAdminOrMgr && renderBasicInfoTab()}
+                  {workspaceTab === 'guests' && isEventAdminOrMgr && renderGuestsTab()}
+                  {workspaceTab === 'activities' && isEventAdminOrMgr && renderActivitiesTab()}
+                  {workspaceTab === 'submissions' && isEventAdminOrMgr && renderSubmissionsTab()}
+                  {workspaceTab === 'checkin' && isEventAdminOrMgr && renderCheckinTab()}
+                  {workspaceTab === 'assignments' && isEventAdminOrMgr && renderAssignmentsTab()}
+                  {workspaceTab === 'certificates' && isEventAdminOrMgr && renderCertificatesTab()}
+                  {workspaceTab === 'communication' && (isEventAdminOrMgr || isCommCoordinator) && renderCommunicationTab()}
+                  {workspaceTab === 'delete' && user.role === 'admin' && renderDeleteEventTab()}
+                </div>
+              </>
+            );
+          })()}
         </div>
       ) : (
-        // Grid of events & Creation Form
-        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: (user && (user.role === 'admin' || user.role === 'moderator')) ? '400px 1fr' : '1fr', 
+          gap: '30px' 
+        }}>
+          {(user && (user.role === 'admin' || user.role === 'moderator')) && (
+            <div className="glass-card" style={{ height: 'fit-content' }}>
+              <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Criar Nova Edição</h3>
 
-          {/* Create simple event */}
-          <div className="glass-card" style={{ height: 'fit-content' }}>
-            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Criar Nova Edição</h3>
+              <form onSubmit={handleCreateEventSubmit}>
+                <div className="form-group">
+                  <label className="form-label">Nome do Evento *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ex: IV Workshop do G-TERCOA"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">URL Amigável (Slug) *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ex: iv-workshop"
+                    required
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Formato de Evento *</label>
+                  <select className="form-select" value={type} onChange={(e) => setType(e.target.value)}>
+                    <option value="workshop">Workshop</option>
+                    <option value="school_of_summer">Escola de Verão</option>
+                    <option value="dima">Diálogos da Matemática com a Pedagogia (DIMA)</option>
+                    <option value="live_cycle">Ciclo de Lives</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label className="form-label">Data de Início *</label>
+                    <input type="date" className="form-input" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label">Data de Fim *</label>
+                    <input type="date" className="form-input" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                </div>
+                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label className="form-label">Início das Inscrições</label>
+                    <input type="date" className="form-input" value={registrationStartDate} onChange={(e) => setRegistrationStartDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label">Fim das Inscrições</label>
+                    <input type="date" className="form-input" value={registrationEndDate} onChange={(e) => setRegistrationEndDate(e.target.value)} />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Local de Realização *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    required
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Descrição Resumida</label>
+                  <textarea
+                    className="form-textarea"
+                    placeholder="Informações gerais e objetivos do evento..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    style={{ minHeight: '80px' }}
+                  />
+                </div>
 
-            <form onSubmit={handleCreateEventSubmit}>
-              <div className="form-group">
-                <label className="form-label">Nome do Evento *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Ex: IV Workshop do G-TERCOA"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">URL Amigável (Slug) *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Ex: iv-workshop"
-                  required
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Formato de Evento *</label>
-                <select className="form-select" value={type} onChange={(e) => setType(e.target.value)}>
-                  <option value="workshop">Workshop</option>
-                  <option value="school_of_summer">Escola de Verão</option>
-                  <option value="dima">Diálogos da Matemática com a Pedagogia (DIMA)</option>
-                  <option value="live_cycle">Ciclo de Lives</option>
-                </select>
-              </div>
-              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label className="form-label">Data de Início *</label>
-                  <input type="date" className="form-input" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                </div>
-                <div>
-                  <label className="form-label">Data de Fim *</label>
-                  <input type="date" className="form-input" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                </div>
-              </div>
-              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label className="form-label">Início das Inscrições</label>
-                  <input type="date" className="form-input" value={registrationStartDate} onChange={(e) => setRegistrationStartDate(e.target.value)} />
-                </div>
-                <div>
-                  <label className="form-label">Fim das Inscrições</label>
-                  <input type="date" className="form-input" value={registrationEndDate} onChange={(e) => setRegistrationEndDate(e.target.value)} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Local de Realização *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  required
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Descrição Resumida</label>
-                <textarea
-                  className="form-textarea"
-                  placeholder="Informações gerais e objetivos do evento..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  style={{ minHeight: '80px' }}
-                />
-              </div>
-
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
-                Criar Evento (Passo 1/3)
-              </button>
-            </form>
-          </div>
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
+                  Criar Evento (Passo 1/3)
+                </button>
+              </form>
+            </div>
+          )}
 
           {/* List of current events in a premium Grid of Cards */}
           <div className="glass-card">
@@ -6098,6 +6513,7 @@ function AdminAssignmentsView({
   const evaluators = assignmentsList.filter(a => a.role === 'evaluator');
   const organizers = assignmentsList.filter(a => a.role === 'organizer');
   const eventCoordinators = assignmentsList.filter(a => a.role === 'event_coordinator');
+  const communicationCoordinators = assignmentsList.filter(a => a.role === 'communication_coordinator');
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '30px' }}>
@@ -6142,6 +6558,7 @@ function AdminAssignmentsView({
               <option value="coordinator">Coordenador de Eixo Temático</option>
               <option value="organizer">Organizador do Evento</option>
               <option value="event_coordinator">Coordenador de Área do Evento</option>
+              <option value="communication_coordinator">Coordenador de Comunicação</option>
             </select>
           </div>
 
@@ -6284,6 +6701,51 @@ function AdminAssignmentsView({
           )}
         </div>
 
+        {/* Coordenadores de Comunicação */}
+        <div className="glass-card">
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Comunicação</h3>
+          {communicationCoordinators.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>Nenhum coordenador de comunicação designado para este evento.</p>
+          ) : (
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th style={{ width: '120px', textAlign: 'center' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {communicationCoordinators.map(cc => (
+                    <tr key={cc.id}>
+                      <td style={{ fontWeight: 600 }}>{cc.user_name}</td>
+                      <td>{cc.user_email}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {assignmentToDeleteId === cc.id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Confirmar?</span>
+                            <button type="button" className="btn btn-danger" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => handleRemoveAssignment(cc.id)}>Sim</button>
+                            <button type="button" className="btn btn-secondary" style={{ padding: '3px 6px', fontSize: '0.7rem' }} onClick={() => setAssignmentToDeleteId(null)}>Não</button>
+                          </div>
+                        ) : (
+                          <button
+                            className="btn btn-danger"
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                            onClick={() => setAssignmentToDeleteId(cc.id)}
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* Coordenadores de Eixos */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Coordenadores de Eixos Temáticos</h3>
@@ -6387,6 +6849,26 @@ function AdminUsersView({ token, showToast }) {
   const [updatingUserId, setUpdatingUserId] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Edit user modal states
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [editForm, setEditForm] = useState({
+    name: '', email: '', cpf: '', role: '', password: '',
+    institution: '', position: '', lattes_link: '', orcid: ''
+  });
+  const [isSavingUser, setIsSavingUser] = useState(false);
+
+  // User event assignments modal states
+  const [showAssignmentsModal, setShowAssignmentsModal] = useState(false);
+  const [userAssignments, setUserAssignments] = useState([]);
+  const [allEvents, setAllEvents] = useState([]);
+  const [newAssignment, setNewAssignment] = useState({
+    eventId: '', role: 'evaluator', axis: ''
+  });
+  const [axesList, setAxesList] = useState([]);
+  const [isAddingAssignment, setIsAddingAssignment] = useState(false);
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -6411,30 +6893,153 @@ function AdminUsersView({ token, showToast }) {
     fetchUsers();
   }, [token]);
 
-  const handleRoleChange = async (userId, newRole) => {
-    setUpdatingUserId(userId);
+  // Edit User handlers
+  const openEditModal = (u) => {
+    setSelectedUser(u);
+    setEditForm({
+      name: u.name || '',
+      email: u.email || '',
+      cpf: u.cpf || '',
+      role: u.role || 'participant',
+      password: '',
+      institution: u.institution || '',
+      position: u.position || '',
+      lattes_link: u.lattes_link || '',
+      orcid: u.orcid || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editForm.name || !editForm.email || !editForm.cpf) {
+      showToast('Nome, E-mail e CPF são obrigatórios.', 'danger');
+      return;
+    }
+    setIsSavingUser(true);
     try {
-      const res = await fetch(`${API_URL}/api/users/${userId}/role`, {
+      const res = await fetch(`${API_URL}/api/users/${selectedUser.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ role: newRole })
+        body: JSON.stringify(editForm)
       });
       const data = await res.json();
       if (res.ok) {
-        showToast(data.message || 'Função do usuário atualizada!');
-        // Update local state
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+        showToast('Dados do usuário atualizados com sucesso!');
+        setShowEditModal(false);
+        fetchUsers();
       } else {
-        showToast(data.error || 'Erro ao atualizar função', 'danger');
+        showToast(data.error || 'Erro ao salvar alterações', 'danger');
       }
     } catch (err) {
       console.error(err);
       showToast('Erro ao conectar ao servidor', 'danger');
     } finally {
-      setUpdatingUserId(null);
+      setIsSavingUser(false);
+    }
+  };
+
+  // Assignments Handlers
+  const fetchUserAssignments = async (userId) => {
+    setLoadingAssignments(true);
+    try {
+      const res = await fetch(`${API_URL}/api/users/${userId}/assignments`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserAssignments(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingAssignments(false);
+    }
+  };
+
+  const fetchAllEvents = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/events`);
+      if (res.ok) {
+        const data = await res.json();
+        setAllEvents(data);
+        if (data.length > 0) {
+          setNewAssignment(prev => ({ ...prev, eventId: data[0].id }));
+          setAxesList(data[0].thematic_axes || []);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openAssignmentsModal = async (u) => {
+    setSelectedUser(u);
+    await fetchUserAssignments(u.id);
+    await fetchAllEvents();
+    setShowAssignmentsModal(true);
+  };
+
+  const handleEventSelect = (eventId) => {
+    const selected = allEvents.find(e => e.id === eventId);
+    setNewAssignment(prev => ({ ...prev, eventId }));
+    setAxesList(selected?.thematic_axes || []);
+  };
+
+  const handleAddAssignmentSubmit = async (e) => {
+    e.preventDefault();
+    if (!newAssignment.eventId) {
+      showToast('Selecione um evento', 'danger');
+      return;
+    }
+    setIsAddingAssignment(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${newAssignment.eventId}/assignments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          user_id: selectedUser.id,
+          role: newAssignment.role,
+          axis: newAssignment.axis
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Papel designado com sucesso no evento!');
+        setNewAssignment(prev => ({ ...prev, axis: '' }));
+        fetchUserAssignments(selectedUser.id);
+      } else {
+        showToast(data.error || 'Erro ao adicionar designação', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede', 'danger');
+    } finally {
+      setIsAddingAssignment(false);
+    }
+  };
+
+  const handleRemoveAssignment = async (eventId, assignmentId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/events/${eventId}/assignments/${assignmentId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        showToast('Designação removida do evento!');
+        fetchUserAssignments(selectedUser.id);
+      } else {
+        showToast('Erro ao remover designação', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro de rede', 'danger');
     }
   };
 
@@ -6450,7 +7055,7 @@ function AdminUsersView({ token, showToast }) {
         <div>
           <h2 style={{ fontSize: '1.5rem', color: 'var(--primary)', fontWeight: 800, margin: 0 }}>Gerenciamento de Usuários</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '4px' }}>
-            Pesquise usuários cadastrados e defina papéis como Moderadores (com permissão para criar eventos).
+            Pesquise usuários cadastrados, gerencie seus dados, redefina senhas ou designe múltiplos papéis nos eventos.
           </p>
         </div>
         <div style={{ position: 'relative', width: '300px' }}>
@@ -6480,7 +7085,7 @@ function AdminUsersView({ token, showToast }) {
                 <th>E-mail</th>
                 <th>CPF</th>
                 <th>Papel Atual</th>
-                <th style={{ width: '220px', textAlign: 'center' }}>Alterar Privilégios</th>
+                <th style={{ width: '340px', textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -6505,23 +7110,203 @@ function AdminUsersView({ token, showToast }) {
                     </span>
                   </td>
                   <td style={{ textAlign: 'center' }}>
-                    <select
-                      className="form-select"
-                      style={{ padding: '4px 8px', fontSize: '0.85rem', height: 'auto', display: 'inline-block', width: '180px' }}
-                      value={u.role}
-                      disabled={updatingUserId === u.id}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                    >
-                      <option value="participant">Participante</option>
-                      <option value="evaluator">Avaliador Científico</option>
-                      <option value="moderator">Moderador (Criar Eventos)</option>
-                      <option value="admin">Administrador</option>
-                    </select>
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.82rem' }} onClick={() => openEditModal(u)}>
+                        ✏️ Editar Cadastro
+                      </button>
+                      <button className="btn btn-accent" style={{ padding: '6px 12px', fontSize: '0.82rem' }} onClick={() => openAssignmentsModal(u)}>
+                        🔑 Papéis em Eventos
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modal 1: Editar Dados do Usuário */}
+      {showEditModal && selectedUser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="glass-card" style={{ width: '600px', maxHeight: '90vh', overflowY: 'auto', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', marginBottom: '16px' }}>Editar Cadastro do Usuário</h3>
+            <form onSubmit={handleEditSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div className="form-group">
+                  <label className="form-label">Nome Completo *</label>
+                  <input type="text" className="form-input" required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">E-mail *</label>
+                  <input type="email" className="form-input" required value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">CPF *</label>
+                  <input type="text" className="form-input" required value={editForm.cpf} onChange={(e) => setEditForm({ ...editForm, cpf: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Papel no Sistema *</label>
+                  <select className="form-select" value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}>
+                    <option value="participant">Participante</option>
+                    <option value="evaluator">Avaliador Científico</option>
+                    <option value="moderator">Moderador (Criar Eventos)</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Instituição</label>
+                  <input type="text" className="form-input" value={editForm.institution} onChange={(e) => setEditForm({ ...editForm, institution: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Cargo / Função</label>
+                  <input type="text" className="form-input" value={editForm.position} onChange={(e) => setEditForm({ ...editForm, position: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Link Currículo Lattes</label>
+                  <input type="text" className="form-input" value={editForm.lattes_link} onChange={(e) => setEditForm({ ...editForm, lattes_link: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Identificador ORCID</label>
+                  <input type="text" className="form-input" value={editForm.orcid} onChange={(e) => setEditForm({ ...editForm, orcid: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginTop: '10px' }}>
+                <label className="form-label">Nova Senha (deixe em branco para não alterar)</label>
+                <input type="password" placeholder="Nova senha de acesso" className="form-input" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="submit" className="btn btn-primary" disabled={isSavingUser}>
+                  {isSavingUser ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Gerenciar Designações/Papéis em Eventos */}
+      {showAssignmentsModal && selectedUser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="glass-card" style={{ width: '750px', maxHeight: '90vh', overflowY: 'auto', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', margin: 0 }}>Designações de {selectedUser.name} em Eventos</h3>
+              <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setShowAssignmentsModal(false)}>&times;</button>
+            </div>
+
+            {/* List of active assignments */}
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '10px', color: 'var(--primary)' }}>Papéis Ativos</h4>
+            {loadingAssignments ? (
+              <div style={{ padding: '15px 0' }}>Carregando atribuições...</div>
+            ) : userAssignments.length === 0 ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: '20px' }}>Nenhum papel designado para este usuário em eventos específicos.</p>
+            ) : (
+              <div className="table-container" style={{ marginBottom: '25px' }}>
+                <table className="custom-table" style={{ fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Evento</th>
+                      <th>Papel</th>
+                      <th>Eixo/Área</th>
+                      <th style={{ width: '100px', textAlign: 'center' }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userAssignments.map(as => (
+                      <tr key={as.id}>
+                        <td style={{ fontWeight: 600 }}>{as.event_name}</td>
+                        <td style={{ textTransform: 'capitalize', fontWeight: 'bold', color: 'var(--primary)' }}>
+                          {as.role === 'coordinator' ? 'Coordenador' :
+                           as.role === 'evaluator' ? 'Avaliador' :
+                           as.role === 'organizer' ? 'Organizador' :
+                           as.role === 'event_coordinator' ? 'Coord. Geral do Evento' :
+                           as.role === 'communication_coordinator' ? 'Coord. de Comunicação' : as.role}
+                        </td>
+                        <td>{as.axis || 'Nenhum'}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleRemoveAssignment(as.event_id, as.id)}>
+                            Remover
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Form to add a new assignment */}
+            <div style={{ background: 'var(--surface-secondary)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '15px', color: 'var(--primary)' }}>Designar Novo Papel em Evento</h4>
+              {allEvents.length === 0 ? (
+                <p style={{ fontSize: '0.85rem', color: 'var(--danger)' }}>Nenhum evento disponível para designação.</p>
+              ) : (
+                <form onSubmit={handleAddAssignmentSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', alignItems: 'end' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Selecionar Evento</label>
+                    <select className="form-select" value={newAssignment.eventId} onChange={(e) => handleEventSelect(e.target.value)}>
+                      {allEvents.map(e => (
+                        <option key={e.id} value={e.id}>{e.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Papel a Designar</label>
+                    <select className="form-select" value={newAssignment.role} onChange={(e) => setNewAssignment({ ...newAssignment, role: e.target.value, axis: '' })}>
+                      <option value="evaluator">Avaliador Geral</option>
+                      <option value="coordinator">Coordenador de Eixo</option>
+                      <option value="organizer">Organizador (Staff)</option>
+                      <option value="event_coordinator">Coordenador do Evento</option>
+                      <option value="communication_coordinator">Coordenador de Comunicação</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    {newAssignment.role === 'coordinator' ? (
+                      <>
+                        <label className="form-label">Eixo Temático *</label>
+                        <select className="form-select" required value={newAssignment.axis} onChange={(e) => setNewAssignment({ ...newAssignment, axis: e.target.value })}>
+                          <option value="">Escolha o eixo...</option>
+                          {axesList.map((axis, i) => (
+                            <option key={i} value={axis}>{axis}</option>
+                          ))}
+                        </select>
+                      </>
+                    ) : (newAssignment.role === 'organizer' || newAssignment.role === 'event_coordinator') ? (
+                      <>
+                        <label className="form-label">Tarefa / Área de Atuação *</label>
+                        <input type="text" className="form-input" placeholder="Ex: Credenciamento, Logística" required value={newAssignment.axis} onChange={(e) => setNewAssignment({ ...newAssignment, axis: e.target.value })} />
+                      </>
+                    ) : (
+                      <>
+                        <label className="form-label">Área / Eixo (Opcional)</label>
+                        <input type="text" className="form-input" disabled placeholder="Não aplicável" value="" />
+                      </>
+                    )}
+                  </div>
+                  <div style={{ gridColumn: 'span 3', display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                    <button type="submit" className="btn btn-primary" disabled={isAddingAssignment}>
+                      {isAddingAssignment ? 'Adicionando...' : 'Designar Papel'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowAssignmentsModal(false)}>Fechar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
