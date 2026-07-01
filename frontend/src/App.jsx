@@ -513,6 +513,7 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [submittingReg, setSubmittingReg] = useState(false);
   const [submissionFile, setSubmissionFile] = useState(null);
+  const [submissionFileIdentified, setSubmissionFileIdentified] = useState(null);
 
   // Submission Form State
   const [subTitle, setSubTitle] = useState('');
@@ -522,6 +523,46 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
   const [submittingWork, setSubmittingWork] = useState(false);
   const [mainAuthor, setMainAuthor] = useState('');
   const [coAuthorsList, setCoAuthorsList] = useState([]);
+
+  // Coauthor search state
+  const [coauthorSearchQuery, setCoauthorSearchQuery] = useState('');
+  const [coauthorSearchResults, setCoauthorSearchResults] = useState([]);
+  const [coauthorSearchLoading, setCoauthorSearchLoading] = useState(false);
+
+  const handleCoauthorSearch = async (query) => {
+    setCoauthorSearchQuery(query);
+    if (!query.trim()) {
+      setCoauthorSearchResults([]);
+      return;
+    }
+    setCoauthorSearchLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/events/${event.id}/registered-users-search?q=${encodeURIComponent(query)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Exclude main author (logged in user) and already added coauthors
+        const filtered = data.filter(u => u.id !== user.id && !coAuthorsList.some(c => c.id === u.id));
+        setCoauthorSearchResults(filtered);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCoauthorSearchLoading(false);
+    }
+  };
+
+  const handleAddCoauthor = (selectedUser) => {
+    const maxCoauthorsAllowed = event.max_coauthors !== undefined ? parseInt(event.max_coauthors, 10) : 3;
+    if (coAuthorsList.length >= maxCoauthorsAllowed) {
+      showToast(`Limite de coautores atingido (Máximo ${maxCoauthorsAllowed})`, 'danger');
+      return;
+    }
+    setCoAuthorsList([...coAuthorsList, selectedUser]);
+    setCoauthorSearchQuery('');
+    setCoauthorSearchResults([]);
+  };
 
   useEffect(() => {
     if (user && !mainAuthor) {
@@ -604,6 +645,30 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
       return { isOpen: false, status: 'after', date: end };
     }
 
+    return { isOpen: true, status: 'open', start, end };
+  };
+
+  const getSubmissionStatus = () => {
+    if (!event) return { isOpen: false, status: 'closed' };
+    if (event.submissions_enabled !== 1) return { isOpen: false, status: 'disabled' };
+
+    const start = event.submission_start_date || null;
+    const end = event.submission_deadline || null;
+
+    if (!start && !end) {
+      return { isOpen: true, status: 'open' };
+    }
+
+    const offset = new Date().getTimezoneOffset();
+    const localDate = new Date(new Date().getTime() - (offset * 60 * 1000));
+    const today = localDate.toISOString().split('T')[0];
+
+    if (start && today < start) {
+      return { isOpen: false, status: 'before', date: start };
+    }
+    if (end && today > end) {
+      return { isOpen: false, status: 'after', date: end };
+    }
     return { isOpen: true, status: 'open', start, end };
   };
 
@@ -701,19 +766,22 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
     e.preventDefault();
     if (!token) return;
     
-    const finalAuthorsList = [mainAuthor.trim(), ...coAuthorsList.map(c => c.trim())].filter(Boolean);
-    if (!subTitle || finalAuthorsList.length === 0 || !subAffiliation || !subAxis || !submissionFile) {
-      showToast('Preencha todos os campos e anexe o arquivo', 'danger');
+    const finalAuthorsNames = [mainAuthor.trim(), ...coAuthorsList.map(c => c.name.trim())].filter(Boolean);
+    if (!subTitle || finalAuthorsNames.length === 0 || !subAffiliation || !subAxis || !submissionFile || !submissionFileIdentified) {
+      showToast('Preencha todos os campos e anexe ambos os arquivos (com e sem identificação)', 'danger');
       return;
     }
 
     setSubmittingWork(true);
+    const coauthorIds = coAuthorsList.map(c => c.id);
     const formData = new FormData();
     formData.append('title', subTitle);
-    formData.append('authors', finalAuthorsList.join(', '));
+    formData.append('authors', finalAuthorsNames.join(', '));
+    formData.append('coauthor_ids', JSON.stringify(coauthorIds));
     formData.append('affiliation', subAffiliation);
     formData.append('thematic_axis', subAxis);
     formData.append('file', submissionFile);
+    formData.append('file_identified', submissionFileIdentified);
 
     try {
       const res = await fetch(`${API_URL}/api/events/${event.id}/submissions`, {
@@ -733,6 +801,7 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
         setSubAffiliation('');
         setSubAxis('');
         setSubmissionFile(null);
+        setSubmissionFileIdentified(null);
       } else {
         showToast(data.error || 'Erro ao submeter trabalho', 'danger');
       }
@@ -1143,118 +1212,189 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
         )}
 
         {/* ── SUBMISSÃO DE TRABALHOS ── */}
-        {checkingReg ? null : isRegistered ? (
-          <section>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#f59e0b', borderRadius: '2px' }} />
-              Submissão de Trabalhos
-            </h2>
-            <div className="glass-card">
-              <div className="abnt-warning-box" style={{ marginBottom: '20px' }}>
-                <h4><Info size={18} /> Atenção às Normas da ABNT</h4>
-                <p>Todos os resumos e artigos devem estar formatados conforme as diretrizes da ABNT (NBR 6023, NBR 10520). Trabalhos fora das normas serão rejeitados pela comissão examinadora.</p>
-              </div>
-              {event.submission_rules && (
-                <div style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.88rem', whiteSpace: 'pre-wrap' }}>
-                  <strong>Regras deste Evento:</strong><br />{event.submission_rules}
-                </div>
-              )}
-              {event.rules_files && (() => {
-                let files = [];
-                try {
-                  files = typeof event.rules_files === 'string' ? JSON.parse(event.rules_files) : event.rules_files;
-                } catch(e) {
-                  console.error(e);
-                }
-                return files && files.length > 0 ? (
-                  <div style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.88rem' }}>
-                    <strong>Arquivos e Modelos para Submissão:</strong>
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
-                      {files.map((file, idx) => (
-                        <a 
-                          key={idx} 
-                          href={`${API_URL}${file.url}`} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          className="btn btn-secondary" 
-                          style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
-                        >
-                          <FileText size={14} style={{ color: 'var(--primary)' }} /> {file.name}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-              <form onSubmit={handleWorkSubmission}>
-                <div className="form-group">
-                  <label className="form-label">Título do Trabalho *</label>
-                  <input type="text" className="form-input" placeholder="Título completo" required value={subTitle} onChange={(e) => setSubTitle(e.target.value)} />
-                </div>
-                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div>
-                    <label className="form-label">Autor Principal *</label>
-                    <input type="text" className="form-input" required value={mainAuthor} onChange={(e) => setMainAuthor(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Filiação Institucional *</label>
-                    <input type="text" className="form-input" placeholder="UFC, UECE, IFCE" required value={subAffiliation} onChange={(e) => setSubAffiliation(e.target.value)} />
-                  </div>
-                </div>
-
-                {(() => {
-                  const maxCoauthorsAllowed = event.max_coauthors !== undefined ? parseInt(event.max_coauthors, 10) : 3;
-                  return maxCoauthorsAllowed > 0 ? (
-                    <div className="form-group" style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: '8px', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>Coautores (Máximo {maxCoauthorsAllowed})</label>
-                        {coAuthorsList.length < maxCoauthorsAllowed && (
-                          <button 
-                            type="button" 
-                            className="btn btn-secondary" 
-                            style={{ padding: '4px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => setCoAuthorsList([...coAuthorsList, ''])}
-                          >
-                            <Plus size={14} /> Adicionar Coautor
-                          </button>
-                        )}
-                      </div>
-
-                      {coAuthorsList.length === 0 ? (
-                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>Nenhum coautor adicionado.</p>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {coAuthorsList.map((author, index) => (
-                            <div key={index} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600, width: '80px' }}>Coautor {index + 1}:</span>
-                              <input
-                                type="text"
-                                className="form-input"
-                                style={{ flex: 1, padding: '6px 10px', fontSize: '0.88rem' }}
-                                placeholder={`Nome completo do coautor ${index + 1}`}
-                                value={author}
-                                required
-                                onChange={(e) => {
-                                  const updated = [...coAuthorsList];
-                                  updated[index] = e.target.value;
-                                  setCoAuthorsList(updated);
-                                }}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn-danger"
-                                style={{ padding: '6px 10px', display: 'flex', alignItems: 'center' }}
-                                onClick={() => setCoAuthorsList(coAuthorsList.filter((_, i) => i !== index))}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          ))}
+        {checkingReg ? null : isRegistered ? (() => {
+          const subStatus = getSubmissionStatus();
+          return (
+            <section>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ display: 'inline-block', width: '4px', height: '22px', background: '#f59e0b', borderRadius: '2px' }} />
+                Submissão de Trabalhos
+              </h2>
+              <div className="glass-card">
+                {/* Prazos Importantes Box */}
+                {(event.submission_start_date || event.submission_deadline || event.evaluation_deadline || event.results_deadline) && (
+                  <div style={{ background: 'var(--surface-secondary)', padding: '16px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.85rem', border: '1px solid var(--border)' }}>
+                    <h4 style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.92rem', fontWeight: 'bold', margin: '0 0 10px 0' }}>
+                      <Calendar size={16} /> Cronograma e Prazos da Chamada Científica
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                      {(event.submission_start_date || event.submission_deadline) && (
+                        <div>
+                          <strong>Período de Submissão:</strong><br />
+                          {event.submission_start_date ? fmtDate(event.submission_start_date) : 'Imediato'} até {event.submission_deadline ? fmtDate(event.submission_deadline) : 'Encerramento'}
+                        </div>
+                      )}
+                      {event.evaluation_deadline && (
+                        <div>
+                          <strong>Prazo de Avaliação:</strong><br />
+                          Até {fmtDate(event.evaluation_deadline)}
+                        </div>
+                      )}
+                      {event.results_deadline && (
+                        <div>
+                          <strong>Resultados Finais:</strong><br />
+                          {fmtDate(event.results_deadline)}
                         </div>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* Status Notice Alert */}
+                {!subStatus.isOpen && (
+                  <div className="abnt-warning-box" style={{ marginBottom: '20px', borderLeftColor: 'var(--danger)', background: 'rgba(239, 68, 68, 0.05)' }}>
+                    <h4 style={{ color: 'var(--danger)' }}><Lock size={18} /> Submissões Bloqueadas</h4>
+                    <p style={{ margin: '4px 0 0 0' }}>
+                      {subStatus.status === 'before' && `O período de submissão de trabalhos ainda não iniciou. As submissões começam em ${subStatus.date.split('-').reverse().join('/')}.`}
+                      {subStatus.status === 'after' && `O prazo para envio de trabalhos foi encerrado em ${subStatus.date.split('-').reverse().join('/')}.`}
+                      {subStatus.status === 'disabled' && 'As submissões de trabalhos científicos para este evento estão temporariamente desativadas.'}
+                      {subStatus.status === 'closed' && 'Submissões encerradas.'}
+                    </p>
+                  </div>
+                )}
+
+                {subStatus.isOpen && (
+                  <div className="abnt-warning-box" style={{ marginBottom: '20px' }}>
+                    <h4><Info size={18} /> Atenção às Normas da ABNT</h4>
+                    <p>Todos os resumos e artigos devem estar formatados conforme as diretrizes da ABNT (NBR 6023, NBR 10520). Trabalhos fora das normas serão rejeitados pela comissão examinadora.</p>
+                  </div>
+                )}
+
+                {event.submission_rules && (
+                  <div style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.88rem', whiteSpace: 'pre-wrap' }}>
+                    <strong>Regras deste Evento:</strong><br />{event.submission_rules}
+                  </div>
+                )}
+                {event.rules_files && (() => {
+                  let files = [];
+                  try {
+                    files = typeof event.rules_files === 'string' ? JSON.parse(event.rules_files) : event.rules_files;
+                  } catch(e) {
+                    console.error(e);
+                  }
+                  return files && files.length > 0 ? (
+                    <div style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '0.88rem' }}>
+                      <strong>Arquivos e Modelos para Submissão:</strong>
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
+                        {files.map((file, idx) => (
+                          <a 
+                            key={idx} 
+                            href={`${API_URL}${file.url}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="btn btn-secondary" 
+                            style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                          >
+                            <FileText size={14} style={{ color: 'var(--primary)' }} /> {file.name}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
                   ) : null;
                 })()}
+                <form onSubmit={handleWorkSubmission}>
+                  <fieldset disabled={!subStatus.isOpen} style={{ border: 'none', padding: 0, margin: 0 }}>
+                    <div className="form-group">
+                      <label className="form-label">Título do Trabalho *</label>
+                      <input type="text" className="form-input" placeholder="Título completo" required value={subTitle} onChange={(e) => setSubTitle(e.target.value)} />
+                    </div>
+                    <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                      <div>
+                        <label className="form-label">Autor Principal (Você) *</label>
+                        <input type="text" className="form-input" disabled value={mainAuthor} style={{ background: 'var(--surface-secondary)', cursor: 'not-allowed' }} />
+                      </div>
+                      <div>
+                        <label className="form-label">Filiação Institucional *</label>
+                        <input type="text" className="form-input" placeholder="UFC, UECE, IFCE" required value={subAffiliation} onChange={(e) => setSubAffiliation(e.target.value)} />
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const maxCoauthorsAllowed = event.max_coauthors !== undefined ? parseInt(event.max_coauthors, 10) : 3;
+                      return maxCoauthorsAllowed > 0 ? (
+                        <div className="form-group" style={{ background: 'var(--surface-secondary)', padding: '14px', borderRadius: '8px', marginBottom: '20px' }}>
+                          <label className="form-label" style={{ fontWeight: 700, marginBottom: '6px' }}>Coautores Inscritos (Máximo {maxCoauthorsAllowed})</label>
+                          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '10px' }}>Apenas participantes inscritos no evento podem ser adicionados como coautores.</p>
+
+                          {/* Search Bar for Coauthors */}
+                          {coAuthorsList.length < maxCoauthorsAllowed && (
+                            <div style={{ position: 'relative', marginBottom: '14px' }}>
+                              <input
+                                type="text"
+                                className="form-input"
+                                placeholder="Buscar coautor por Nome, E-mail ou CPF..."
+                                value={coauthorSearchQuery}
+                                onChange={(e) => handleCoauthorSearch(e.target.value)}
+                              />
+                              {coauthorSearchLoading && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>Buscando participantes inscritos...</div>}
+                              {coauthorSearchResults.length > 0 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  background: '#fff',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  maxHeight: '180px',
+                                  overflowY: 'auto',
+                                  zIndex: 100,
+                                  boxShadow: 'var(--shadow-md)',
+                                  marginTop: '4px'
+                                }}>
+                                  {coauthorSearchResults.map(res => (
+                                    <div key={res.id} style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', fontSize: '0.85rem' }}>
+                                      <div>
+                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{res.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.email}</div>
+                                      </div>
+                                      <button type="button" className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleAddCoauthor(res)}>
+                                        Adicionar
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Selected Coauthors List */}
+                          {coAuthorsList.length === 0 ? (
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>Nenhum coautor selecionado.</p>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {coAuthorsList.map((author, index) => (
+                                <div key={author.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '8px 12px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                                  <div>
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600, marginRight: '8px' }}>Coautor {index + 1}:</span>
+                                    <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>{author.name}</span>
+                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '8px' }}>({author.email})</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="btn btn-danger"
+                                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                    onClick={() => setCoAuthorsList(coAuthorsList.filter(c => c.id !== author.id))}
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
                 <div className="form-group">
                   <label className="form-label">Eixo Temático *</label>
                   <select className="form-select" required value={subAxis} onChange={(e) => setSubAxis(e.target.value)}>
@@ -1262,22 +1402,35 @@ function EventEditionView({ token, user, showToast, setShowLoginModal }) {
                     {event.thematic_axes.map((axis, i) => <option key={i} value={axis}>{axis}</option>)}
                   </select>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Arquivo (PDF/Word) *</label>
-                  <div style={{ border: '2px dashed var(--border)', borderRadius: '8px', padding: '28px', textAlign: 'center', cursor: 'pointer', background: submissionFile ? 'rgba(5,150,105,0.05)' : 'transparent', borderColor: submissionFile ? 'var(--success)' : 'var(--border)', transition: 'all 0.2s' }} onClick={() => document.getElementById('file-upload-input').click()}>
-                    <Upload size={28} style={{ color: submissionFile ? 'var(--success)' : 'var(--text-muted)', marginBottom: '8px' }} />
-                    <p style={{ fontSize: '0.9rem', fontWeight: 500, margin: '0 0 4px' }}>{submissionFile ? submissionFile.name : 'Clique para selecionar o arquivo'}</p>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PDF ou Word · Máximo 10MB</span>
-                    <input type="file" id="file-upload-input" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={(e) => setSubmissionFile(e.target.files[0])} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 'bold' }}>Versão Cega (Sem Identificação) *</label>
+                    <div style={{ border: '2px dashed var(--border)', borderRadius: '8px', padding: '18px', textAlign: 'center', cursor: 'pointer', background: submissionFile ? 'rgba(5,150,105,0.02)' : 'transparent', borderColor: submissionFile ? 'var(--success)' : 'var(--border)', transition: 'all 0.2s' }} onClick={() => document.getElementById('file-upload-blind').click()}>
+                      <Upload size={20} style={{ color: submissionFile ? 'var(--success)' : 'var(--text-muted)', marginBottom: '4px' }} />
+                      <p style={{ fontSize: '0.82rem', fontWeight: 500, margin: '0 0 2px', wordBreak: 'break-all' }}>{submissionFile ? submissionFile.name : 'Selecionar arquivo cego'}</p>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Sem nome dos autores</span>
+                      <input type="file" id="file-upload-blind" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={(e) => setSubmissionFile(e.target.files[0])} />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 'bold' }}>Versão Identificada (Com Identificação) *</label>
+                    <div style={{ border: '2px dashed var(--border)', borderRadius: '8px', padding: '18px', textAlign: 'center', cursor: 'pointer', background: submissionFileIdentified ? 'rgba(5,150,105,0.02)' : 'transparent', borderColor: submissionFileIdentified ? 'var(--success)' : 'var(--border)', transition: 'all 0.2s' }} onClick={() => document.getElementById('file-upload-identified').click()}>
+                      <Upload size={20} style={{ color: submissionFileIdentified ? 'var(--success)' : 'var(--text-muted)', marginBottom: '4px' }} />
+                      <p style={{ fontSize: '0.82rem', fontWeight: 500, margin: '0 0 2px', wordBreak: 'break-all' }}>{submissionFileIdentified ? submissionFileIdentified.name : 'Selecionar arquivo identificado'}</p>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Com nome dos autores</span>
+                      <input type="file" id="file-upload-identified" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={(e) => setSubmissionFileIdentified(e.target.files[0])} />
+                    </div>
                   </div>
                 </div>
                 <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '13px' }} disabled={submittingWork}>
                   {submittingWork ? 'Submetendo...' : 'Enviar Trabalho para Avaliação'}
                 </button>
+                  </fieldset>
               </form>
             </div>
           </section>
-        ) : null}
+          );
+        })() : null}
 
       </div>
     </div>
@@ -2474,9 +2627,60 @@ function EvaluatorReviewsView({ token, showToast }) {
   const [comments, setComments] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
 
+  // Structured evaluation checklist state
+  const [formAnswers, setFormAnswers] = useState({
+    q1: '', q2: '', q3: '', q4: '', q5: '', q6: '', q7: '', q8: '', q9: '', q10: '', q11: '', q12: '', q13: ''
+  });
+  const [recommendation, setRecommendation] = useState('');
+
+  const EVALUATION_QUESTIONS = [
+    { id: 'q1', text: '1. O texto traz uma contribuição importante para o conhecimento da área em que se insere?' },
+    { id: 'q2', text: '2. O título e o resumo são coerentes com o conteúdo do texto?' },
+    { id: 'q3', text: '3. O Resumo apresenta os elementos principais?' },
+    { id: 'q4', text: '4. O tema proposto está bem desenvolvido, com articulação entre as partes do texto?' },
+    { id: 'q5', text: '5. O texto apresenta o método de pesquisa, descrevendo os instrumentos e técnicas adotados na pesquisa?' },
+    { id: 'q6', text: '6. De um modo geral, o texto alcança e/ou responde aos objetivos/questões propostos?' },
+    { id: 'q7', text: '7. O texto apresenta os principais resultados encontrados, com os dados e informações que contribuem para o atendimento do objetivo proposto?' },
+    { id: 'q8', text: '8. O texto apresenta as considerações sobre o estudo, sintetizando os aspectos mais importantes da pesquisa?' },
+    { id: 'q9', text: '9. As referências são atualizadas e/ou relevantes ao texto?' },
+    { id: 'q10', text: '10. Apresenta todas as referências citadas no texto?' },
+    { id: 'q11', text: '11. Quanto aos aspectos ortográfico e gramatical, o texto está bem escrito?' },
+    { id: 'q12', text: '12. Quanto à adequação da linguagem está clara?' },
+    { id: 'q13', text: '13. O texto segue rigorosamente as normas da ABNT?' }
+  ];
+
   useEffect(() => {
     fetchSubmissionsToReview();
   }, []);
+
+  useEffect(() => {
+    if (selectedSub) {
+      setComments(selectedSub.review_comments || '');
+      setStatus(selectedSub.status === 'under_review' ? '' : selectedSub.status);
+      if (selectedSub.evaluation_form) {
+        setFormAnswers(selectedSub.evaluation_form.answers || {
+          q1: '', q2: '', q3: '', q4: '', q5: '', q6: '', q7: '', q8: '', q9: '', q10: '', q11: '', q12: '', q13: ''
+        });
+        setRecommendation(selectedSub.evaluation_form.recommendation || '');
+      } else {
+        setFormAnswers({
+          q1: '', q2: '', q3: '', q4: '', q5: '', q6: '', q7: '', q8: '', q9: '', q10: '', q11: '', q12: '', q13: ''
+        });
+        setRecommendation('');
+      }
+    }
+  }, [selectedSub]);
+
+  const handleRecommendationChange = (val) => {
+    setRecommendation(val);
+    if (val === 'publish_as_is') {
+      setStatus('accepted');
+    } else if (val === 'publish_with_minor' || val === 'publish_with_major') {
+      setStatus('accepted_with_remarks');
+    } else if (val === 'reject') {
+      setStatus('rejected');
+    }
+  };
 
   const fetchSubmissionsToReview = async () => {
     try {
@@ -2496,8 +2700,8 @@ function EvaluatorReviewsView({ token, showToast }) {
 
   const handleSubmitReview = async (e) => {
     e.preventDefault();
-    if (!status) {
-      showToast('Selecione o status do parecer', 'danger');
+    if (!status || !recommendation) {
+      showToast('Selecione a recomendação oficial', 'danger');
       return;
     }
     setSubmittingReview(true);
@@ -2508,12 +2712,19 @@ function EvaluatorReviewsView({ token, showToast }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ status, review_comments: comments })
+        body: JSON.stringify({ 
+          status, 
+          review_comments: comments,
+          evaluation_form: {
+            answers: formAnswers,
+            recommendation
+          }
+        })
       });
 
       const data = await res.json();
       if (res.ok) {
-        showToast('Parecer acadêmico enviado com sucesso!');
+        showToast('Parecer acadêmico e formulário enviados com sucesso!');
         setSelectedSub(null);
         setStatus('');
         setComments('');
@@ -2554,27 +2765,108 @@ function EvaluatorReviewsView({ token, showToast }) {
           </div>
 
           <form onSubmit={handleSubmitReview}>
-            <div className="form-group">
-              <label className="form-label">Resultado da Avaliação *</label>
-              <select className="form-select" required value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="">Selecione...</option>
-                <option value="accepted">Aceito</option>
-                <option value="accepted_with_remarks">Aceito com Ressalvas</option>
-                <option value="rejected">Rejeitado</option>
-              </select>
+            <div style={{ background: 'rgba(59, 130, 246, 0.05)', borderLeft: '4px solid var(--primary-light)', padding: '14px', borderRadius: '4px', marginBottom: '20px', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+              <strong>A comissão editorial solicita que V. Sa. aprecie o presente artigo e devolva a sua avaliação, no prazo de 05 dias a partir do recebimento desta solicitação. Informamos que será emitida uma declaração para o(a) avaliador(a). Qualquer impedimento, entre em contato pelo e-mail: tercoa.monitoria@gmail.com</strong>
             </div>
+
+            <h4 style={{ fontSize: '1rem', fontWeight: 'bold', marginBottom: '10px', color: 'var(--primary)' }}>FORMULÁRIO DE AVALIAÇÃO DE TRABALHOS</h4>
+            <div className="table-container" style={{ marginBottom: '20px', overflowX: 'auto' }}>
+              <table className="custom-table" style={{ width: '100%', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Critério de Avaliação</th>
+                    <th style={{ textAlign: 'center', width: '70px' }}>Sim</th>
+                    <th style={{ textAlign: 'center', width: '70px' }}>Razoável</th>
+                    <th style={{ textAlign: 'center', width: '70px' }}>Pouco</th>
+                    <th style={{ textAlign: 'center', width: '70px' }}>Não</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {EVALUATION_QUESTIONS.map(q => (
+                    <tr key={q.id}>
+                      <td style={{ textAlign: 'left', fontWeight: '500' }}>{q.text}</td>
+                      {['sim', 'razoavel', 'pouco', 'nao'].map(opt => (
+                        <td key={opt} style={{ textAlign: 'center' }}>
+                          <input
+                            type="radio"
+                            name={q.id}
+                            value={opt}
+                            checked={formAnswers[q.id] === opt}
+                            onChange={() => setFormAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                            required
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="form-group" style={{ background: 'var(--surface-secondary)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid var(--border)' }}>
+              <label className="form-label" style={{ fontWeight: 'bold', marginBottom: '10px' }}>RECOMENDAÇÃO *</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                  <input
+                    type="radio"
+                    name="recommendation"
+                    value="publish_as_is"
+                    checked={recommendation === 'publish_as_is'}
+                    onChange={() => handleRecommendationChange('publish_as_is')}
+                    required
+                  />
+                  Publicar o texto integralmente, sem alterações.
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                  <input
+                    type="radio"
+                    name="recommendation"
+                    value="publish_with_minor"
+                    checked={recommendation === 'publish_with_minor'}
+                    onChange={() => handleRecommendationChange('publish_with_minor')}
+                    required
+                  />
+                  Publicar o texto, sem retorno ao(s) autor(es), após pequenas correções, conforme sugestões anexas.
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                  <input
+                    type="radio"
+                    name="recommendation"
+                    value="publish_with_major"
+                    checked={recommendation === 'publish_with_major'}
+                    onChange={() => handleRecommendationChange('publish_with_major')}
+                    required
+                  />
+                  Publicar o texto após o retorno ao(s) autor(es) para significativas correções e alterações, conforme sugestões anexas.
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem' }}>
+                  <input
+                    type="radio"
+                    name="recommendation"
+                    value="reject"
+                    checked={recommendation === 'reject'}
+                    onChange={() => handleRecommendationChange('reject')}
+                    required
+                  />
+                  Não publicar, devido aos motivos indicados a seguir.
+                </label>
+              </div>
+            </div>
+
             <div className="form-group">
-              <label className="form-label">Justificativa e Comentários Acadêmicos *</label>
+              <label className="form-label" style={{ fontWeight: 'bold' }}>COMENTÁRIOS AO TEXTO *</label>
               <textarea
                 className="form-input"
-                style={{ minHeight: '100px' }}
-                placeholder="Insira as correções necessárias, sugestões de ABNT e notas detalhadas de revisão..."
+                style={{ minHeight: '120px' }}
+                placeholder="Insira as observações críticas, justificativa da recomendação ou anotações detalhadas de revisão..."
                 required
                 value={comments}
                 onChange={(e) => setComments(e.target.value)}
               />
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button type="submit" className="btn btn-primary" disabled={submittingReview}>
                 {submittingReview ? 'Enviando...' : 'Confirmar e Enviar Parecer'}
               </button>
@@ -2654,6 +2946,30 @@ function CoordinatorSubmissionsView({ token, showToast }) {
   const [finalStatus, setFinalStatus] = useState('');
   const [finalComments, setFinalComments] = useState('');
   const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
+
+  // Read-only structured form modal state
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [formModalTitle, setFormModalTitle] = useState('');
+  const [formModalData, setFormModalData] = useState(null);
+
+  const openFormViewModal = (title, formStr, commentsVal) => {
+    let formData = null;
+    if (formStr) {
+      try {
+        formData = typeof formStr === 'string' ? JSON.parse(formStr) : formStr;
+      } catch (e) {
+        console.error('Error parsing evaluation form', e);
+      }
+    }
+    setFormModalTitle(title);
+    setFormModalData({
+      answers: formData?.answers || {},
+      recommendation: formData?.recommendation || '',
+      comments: commentsVal || ''
+    });
+    setShowFormModal(true);
+  };
+  const [selectedEventIdForCoordination, setSelectedEventIdForCoordination] = useState(null);
 
   useEffect(() => {
     fetchCoordinationSubmissions();
@@ -2858,31 +3174,55 @@ function CoordinatorSubmissionsView({ token, showToast }) {
               fontSize: '0.82rem',
               border: '1px solid var(--border)'
             }}>
-              <div style={{ borderRight: '1px solid var(--border)', paddingRight: '10px' }}>
-                <h4 style={{ fontWeight: 'bold', marginBottom: '6px', color: 'var(--primary)' }}>Avaliador 1</h4>
-                <div><strong>Nome:</strong> {selectedSub.reviewer_name || <span style={{color:'var(--text-muted)'}}>Não designado</span>}</div>
-                <div style={{ marginTop: '3px' }}>
-                  <strong>Parecer:</strong>{' '}
-                  <span className={`badge ${selectedSub.reviewer_status === 'accepted' ? 'badge-success' : selectedSub.reviewer_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>
-                    {selectedSub.reviewer_status === 'under_review' ? 'Pendente' : selectedSub.reviewer_status || 'Nenhum'}
-                  </span>
+              <div style={{ borderRight: '1px solid var(--border)', paddingRight: '10px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <h4 style={{ fontWeight: 'bold', marginBottom: '6px', color: 'var(--primary)' }}>Avaliador 1</h4>
+                  <div><strong>Nome:</strong> {selectedSub.reviewer_name || <span style={{color:'var(--text-muted)'}}>Não designado</span>}</div>
+                  <div style={{ marginTop: '3px' }}>
+                    <strong>Parecer:</strong>{' '}
+                    <span className={`badge ${selectedSub.reviewer_status === 'accepted' ? 'badge-success' : selectedSub.reviewer_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>
+                      {selectedSub.reviewer_status === 'under_review' ? 'Pendente' : selectedSub.reviewer_status || 'Nenhum'}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: '6px', fontStyle: 'italic', maxHeight: '80px', overflowY: 'auto', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                    {selectedSub.reviewer_comments ? `"${selectedSub.reviewer_comments}"` : 'Sem observações.'}
+                  </div>
                 </div>
-                <div style={{ marginTop: '6px', fontStyle: 'italic', maxHeight: '80px', overflowY: 'auto', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                  {selectedSub.reviewer_comments ? `"${selectedSub.reviewer_comments}"` : 'Sem observações.'}
-                </div>
+                {selectedSub.reviewer_evaluation_form && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: '5px 10px', fontSize: '0.72rem', marginTop: '10px', width: '100%' }}
+                    onClick={() => openFormViewModal('Ficha de Avaliação - Revisor 1', selectedSub.reviewer_evaluation_form, selectedSub.reviewer_comments)}
+                  >
+                    👁️ Ver Ficha de Avaliação 1
+                  </button>
+                )}
               </div>
-              <div style={{ paddingLeft: '5px' }}>
-                <h4 style={{ fontWeight: 'bold', marginBottom: '6px', color: 'var(--primary)' }}>Avaliador 2</h4>
-                <div><strong>Nome:</strong> {selectedSub.reviewer_2_name || <span style={{color:'var(--text-muted)'}}>Não designado</span>}</div>
-                <div style={{ marginTop: '3px' }}>
-                  <strong>Parecer:</strong>{' '}
-                  <span className={`badge ${selectedSub.reviewer_2_status === 'accepted' ? 'badge-success' : selectedSub.reviewer_2_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>
-                    {selectedSub.reviewer_2_status === 'under_review' ? 'Pendente' : selectedSub.reviewer_2_status || 'Nenhum'}
-                  </span>
+              <div style={{ paddingLeft: '5px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <h4 style={{ fontWeight: 'bold', marginBottom: '6px', color: 'var(--primary)' }}>Avaliador 2</h4>
+                  <div><strong>Nome:</strong> {selectedSub.reviewer_2_name || <span style={{color:'var(--text-muted)'}}>Não designado</span>}</div>
+                  <div style={{ marginTop: '3px' }}>
+                    <strong>Parecer:</strong>{' '}
+                    <span className={`badge ${selectedSub.reviewer_2_status === 'accepted' ? 'badge-success' : selectedSub.reviewer_2_status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>
+                      {selectedSub.reviewer_2_status === 'under_review' ? 'Pendente' : selectedSub.reviewer_2_status || 'Nenhum'}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: '6px', fontStyle: 'italic', maxHeight: '80px', overflowY: 'auto', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                    {selectedSub.reviewer_2_comments ? `"${selectedSub.reviewer_2_comments}"` : 'Sem observações.'}
+                  </div>
                 </div>
-                <div style={{ marginTop: '6px', fontStyle: 'italic', maxHeight: '80px', overflowY: 'auto', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                  {selectedSub.reviewer_2_comments ? `"${selectedSub.reviewer_2_comments}"` : 'Sem observações.'}
-                </div>
+                {selectedSub.reviewer_2_evaluation_form && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: '5px 10px', fontSize: '0.72rem', marginTop: '10px', width: '100%' }}
+                    onClick={() => openFormViewModal('Ficha de Avaliação - Revisor 2', selectedSub.reviewer_2_evaluation_form, selectedSub.reviewer_2_comments)}
+                  >
+                    👁️ Ver Ficha de Avaliação 2
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2926,22 +3266,103 @@ function CoordinatorSubmissionsView({ token, showToast }) {
         <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
           <p style={{ color: 'var(--text-muted)' }}>Nenhuma submissão encontrada sob sua coordenação para eixos ativos.</p>
         </div>
+      ) : selectedEventIdForCoordination === null ? (
+        (() => {
+          const groupedEvents = submissions.reduce((acc, sub) => {
+            let ev = acc.find(e => e.id === sub.event_id);
+            if (!ev) {
+              ev = {
+                id: sub.event_id,
+                name: sub.event_name,
+                total: 0,
+                pending: 0,
+                reviewed: 0
+              };
+              acc.push(ev);
+            }
+            ev.total += 1;
+            if (sub.status === 'under_review') {
+              ev.pending += 1;
+            } else {
+              ev.reviewed += 1;
+            }
+            return acc;
+          }, []);
+
+          return (
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Evento</th>
+                    <th style={{ textAlign: 'center' }}>Total de Trabalhos</th>
+                    <th style={{ textAlign: 'center' }}>Avaliados</th>
+                    <th style={{ textAlign: 'center' }}>Pendentes</th>
+                    <th style={{ textAlign: 'center', width: '180px' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedEvents.map(ev => (
+                    <tr key={ev.id}>
+                      <td style={{ fontWeight: 600 }}>{ev.name}</td>
+                      <td style={{ textAlign: 'center' }}>{ev.total}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="badge badge-success" style={{ minWidth: '35px', display: 'inline-block' }}>{ev.reviewed}</span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="badge badge-warning" style={{ minWidth: '35px', display: 'inline-block' }}>{ev.pending}</span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button 
+                          className="btn btn-primary" 
+                          style={{ padding: '6px 12px', fontSize: '0.8rem' }} 
+                          onClick={() => setSelectedEventIdForCoordination(ev.id)}
+                        >
+                          Gerenciar Trabalhos
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Evento</th>
-                <th>Título do Artigo</th>
-                <th>Eixo Temático</th>
-                <th>Avaliadores (1 & 2)</th>
-                <th>Status</th>
-                <th>Parecer Final</th>
-                <th style={{ width: '170px', textAlign: 'center' }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {submissions.map(sub => (
+        (() => {
+          const filteredSubmissions = submissions.filter(sub => sub.event_id === selectedEventIdForCoordination);
+          const currentEventName = filteredSubmissions[0]?.event_name || 'Evento';
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: 'var(--surface-secondary)', padding: '15px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.2rem', color: 'var(--primary)', margin: 0 }}>{currentEventName}</h3>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Gerenciando {filteredSubmissions.length} trabalho(s) sob sua coordenação</span>
+                </div>
+                <button className="btn btn-secondary" onClick={() => setSelectedEventIdForCoordination(null)}>
+                  Voltar para Lista de Eventos
+                </button>
+              </div>
+
+              {filteredSubmissions.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                  <p style={{ color: 'var(--text-muted)' }}>Nenhum trabalho sob sua coordenação para este evento.</p>
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Título do Artigo</th>
+                        <th>Eixo Temático</th>
+                        <th>Avaliadores (1 & 2)</th>
+                        <th>Status</th>
+                        <th>Parecer Final</th>
+                        <th style={{ width: '170px', textAlign: 'center' }}>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSubmissions.map(sub => (
                 <tr key={sub.id}>
                   <td>{sub.event_name}</td>
                   <td style={{ fontWeight: 600 }}>{sub.title}</td>
@@ -2986,19 +3407,37 @@ function CoordinatorSubmissionsView({ token, showToast }) {
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                      <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 10px', fontSize: '0.78rem', textDecoration: 'none', display: 'inline-block' }}>
-                        Documento
-                      </a>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.72rem', textDecoration: 'none', textAlign: 'center' }}>
+                          Cego (Sem Id.)
+                        </a>
+                        {sub.file_path_identified && (
+                          <a href={`${API_URL}${sub.file_path_identified}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.72rem', textDecoration: 'none', textAlign: 'center' }}>
+                            Identificado
+                          </a>
+                        )}
+                      </div>
                       <button className="btn btn-accent" style={{ padding: '6px 10px', fontSize: '0.78rem' }} onClick={() => openDecisionModal(sub)}>
                         Decidir
                       </button>
                     </div>
                   </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()
+      )}
+      {showFormModal && formModalData && (
+        <EvaluationFormViewModal
+          title={formModalTitle}
+          data={formModalData}
+          onClose={() => { setShowFormModal(false); setFormModalData(null); }}
+        />
       )}
     </div>
   );
@@ -3206,6 +3645,10 @@ function AdminEventsView({ token, showToast }) {
   const [location, setLocation] = useState('Auditório Principal');
   const [registrationStartDate, setRegistrationStartDate] = useState('');
   const [registrationEndDate, setRegistrationEndDate] = useState('');
+  const [submissionStartDate, setSubmissionStartDate] = useState('');
+  const [submissionDeadline, setSubmissionDeadline] = useState('');
+  const [evaluationDeadline, setEvaluationDeadline] = useState('');
+  const [resultsDeadline, setResultsDeadline] = useState('');
 
   // Incremental configurations
   const [bannerUrl, setBannerUrl] = useState('');
@@ -3390,6 +3833,10 @@ function AdminEventsView({ token, showToast }) {
     setLocation(ev.location || 'Auditório Principal');
     setRegistrationStartDate(ev.registration_start_date || '');
     setRegistrationEndDate(ev.registration_end_date || '');
+    setSubmissionStartDate(ev.submission_start_date || '');
+    setSubmissionDeadline(ev.submission_deadline || '');
+    setEvaluationDeadline(ev.evaluation_deadline || '');
+    setResultsDeadline(ev.results_deadline || '');
 
     setWorkloadHours(ev.workload_hours ? ev.workload_hours.toString() : '20');
     setTransmissionLink(ev.transmission_link || '');
@@ -3584,6 +4031,10 @@ function AdminEventsView({ token, showToast }) {
       cert_text_guest: overrides.cert_text_guest !== undefined ? overrides.cert_text_guest : certTextGuest,
       registration_start_date: overrides.registration_start_date !== undefined ? overrides.registration_start_date : registrationStartDate,
       registration_end_date: overrides.registration_end_date !== undefined ? overrides.registration_end_date : registrationEndDate,
+      submission_start_date: overrides.submission_start_date !== undefined ? overrides.submission_start_date : submissionStartDate,
+      submission_deadline: overrides.submission_deadline !== undefined ? overrides.submission_deadline : submissionDeadline,
+      evaluation_deadline: overrides.evaluation_deadline !== undefined ? overrides.evaluation_deadline : evaluationDeadline,
+      results_deadline: overrides.results_deadline !== undefined ? overrides.results_deadline : resultsDeadline,
       supporters: overrides.supporters !== undefined ? overrides.supporters : supportersList,
       additional_links: overrides.additional_links !== undefined ? overrides.additional_links : eventAdditionalLinks,
       rules_files: overrides.rules_files !== undefined ? overrides.rules_files : rulesFiles,
@@ -4307,7 +4758,11 @@ function AdminEventsView({ token, showToast }) {
         submission_rules: submissionRules,
         thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
         rules_files: rulesFiles,
-        max_coauthors: maxCoauthors
+        max_coauthors: maxCoauthors,
+        submission_start_date: submissionStartDate || null,
+        submission_deadline: submissionDeadline || null,
+        evaluation_deadline: evaluationDeadline || null,
+        results_deadline: resultsDeadline || null
       });
     };
 
@@ -4345,7 +4800,11 @@ function AdminEventsView({ token, showToast }) {
             submission_rules: submissionRules,
             thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
             rules_files: updated,
-            max_coauthors: maxCoauthors
+            max_coauthors: maxCoauthors,
+            submission_start_date: submissionStartDate || null,
+            submission_deadline: submissionDeadline || null,
+            evaluation_deadline: evaluationDeadline || null,
+            results_deadline: resultsDeadline || null
           });
         } else {
           showToast(data.error || 'Erro ao enviar arquivo', 'danger');
@@ -4367,7 +4826,11 @@ function AdminEventsView({ token, showToast }) {
         submission_rules: submissionRules,
         thematic_axes: thematicAxes.split(',').map(axis => axis.trim()).filter(Boolean),
         rules_files: updated,
-        max_coauthors: maxCoauthors
+        max_coauthors: maxCoauthors,
+        submission_start_date: submissionStartDate || null,
+        submission_deadline: submissionDeadline || null,
+        evaluation_deadline: evaluationDeadline || null,
+        results_deadline: resultsDeadline || null
       });
     };
 
@@ -4410,6 +4873,48 @@ function AdminEventsView({ token, showToast }) {
                     className="form-input"
                     value={maxCoauthors}
                     onChange={(e) => setMaxCoauthors(parseInt(e.target.value, 10) || 0)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div>
+                  <label className="form-label">Prazo de Início de Envio</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={submissionStartDate}
+                    onChange={(e) => setSubmissionStartDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Prazo de Fim de Envio</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={submissionDeadline}
+                    onChange={(e) => setSubmissionDeadline(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div>
+                  <label className="form-label">Prazo Limite de Avaliação</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={evaluationDeadline}
+                    onChange={(e) => setEvaluationDeadline(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Prazo dos Resultados Finais</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={resultsDeadline}
+                    onChange={(e) => setResultsDeadline(e.target.value)}
                   />
                 </div>
               </div>
@@ -6699,6 +7204,29 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
   const [submissions, setSubmissions] = useState([]);
   const [evaluators, setEvaluators] = useState([]);
 
+  // Read-only structured form modal state
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [formModalTitle, setFormModalTitle] = useState('');
+  const [formModalData, setFormModalData] = useState(null);
+
+  const openFormViewModal = (title, formStr, commentsVal) => {
+    let formData = null;
+    if (formStr) {
+      try {
+        formData = typeof formStr === 'string' ? JSON.parse(formStr) : formStr;
+      } catch (e) {
+        console.error('Error parsing evaluation form', e);
+      }
+    }
+    setFormModalTitle(title);
+    setFormModalData({
+      answers: formData?.answers || {},
+      recommendation: formData?.recommendation || '',
+      comments: commentsVal || ''
+    });
+    setShowFormModal(true);
+  };
+
   useEffect(() => {
     if (!propEventId) {
       fetchEvents();
@@ -6753,8 +7281,7 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
     }
   };
 
-  const handleAssignReviewer = async (subId, reviewerId) => {
-    if (!reviewerId) return;
+  const handleAssignReviewer = async (subId, reviewerId, slot) => {
     try {
       const res = await fetch(`${API_URL}/api/submissions/${subId}/assign`, {
         method: 'POST',
@@ -6762,17 +7289,22 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ reviewer_id: reviewerId })
+        body: JSON.stringify({ 
+          reviewer_id: reviewerId || null, 
+          reviewer_slot: slot 
+        })
       });
 
       if (res.ok) {
-        showToast('Avaliador alocado com sucesso!');
+        showToast(reviewerId ? 'Avaliador alocado com sucesso!' : 'Avaliador removido com sucesso!');
         fetchSubmissions(selectedEventId);
       } else {
-        showToast('Erro ao alocar avaliador', 'danger');
+        const data = await res.json();
+        showToast(data.error || 'Erro ao alocar avaliador', 'danger');
       }
     } catch (err) {
       console.error(err);
+      showToast('Erro de conexão ao alocar avaliador', 'danger');
     }
   };
 
@@ -6797,7 +7329,7 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
               <th>Título do Trabalho</th>
               <th>Autor Principal</th>
               <th>Eixo Temático</th>
-              <th>Avaliador Alocado</th>
+              <th style={{ minWidth: '180px' }}>Avaliadores Alocados (1 & 2)</th>
               <th>Status</th>
               <th>Parecer Final</th>
             </tr>
@@ -6811,26 +7343,70 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
                   <td>
                     <div style={{ fontWeight: 600 }}>{sub.title}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Coautores: {sub.authors || 'Nenhum'}</div>
-                    <div>
-                      <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', textDecoration: 'underline' }}>
-                        Baixar Artigo (PDF/Word)
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <a href={`${API_URL}${sub.file_path}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: '0.72rem', textDecoration: 'none' }}>
+                        Cego (Sem Id.)
                       </a>
+                      {sub.file_path_identified && (
+                        <a href={`${API_URL}${sub.file_path_identified}`} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: '0.72rem', textDecoration: 'none' }}>
+                          Identificado
+                        </a>
+                      )}
                     </div>
                   </td>
                   <td>{sub.submitter_name}</td>
                   <td><span className="badge badge-primary">{sub.thematic_axis}</span></td>
                   <td>
-                    <select
-                      className="form-select"
-                      style={{ padding: '6px 12px', fontSize: '0.85rem' }}
-                      value={sub.reviewer_id || ''}
-                      onChange={(e) => handleAssignReviewer(sub.id, e.target.value)}
-                    >
-                      <option value="">Designar Avaliador...</option>
-                      {evaluators.map(ev => (
-                        <option key={ev.id} value={ev.id}>{ev.name}</option>
-                      ))}
-                    </select>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Avaliador 1:</span>
+                        <select
+                          className="form-select"
+                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginTop: '2px' }}
+                          value={sub.reviewer_id || ''}
+                          onChange={(e) => handleAssignReviewer(sub.id, e.target.value, 1)}
+                        >
+                          <option value="">Nenhum / Escolher...</option>
+                          {evaluators.map(ev => (
+                            <option key={ev.id} value={ev.id}>{ev.name}</option>
+                          ))}
+                        </select>
+                        {sub.reviewer_evaluation_form && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '2px 6px', fontSize: '0.68rem', marginTop: '4px', display: 'block', width: '100%', textAlign: 'center' }}
+                            onClick={() => openFormViewModal('Ficha de Avaliação 1', sub.reviewer_evaluation_form, sub.reviewer_comments)}
+                          >
+                            👁️ Ver Ficha 1
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ borderTop: '1px dashed var(--border)', paddingTop: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Avaliador 2:</span>
+                        <select
+                          className="form-select"
+                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginTop: '2px' }}
+                          value={sub.reviewer_2_id || ''}
+                          onChange={(e) => handleAssignReviewer(sub.id, e.target.value, 2)}
+                        >
+                          <option value="">Nenhum / Escolher...</option>
+                          {evaluators.map(ev => (
+                            <option key={ev.id} value={ev.id}>{ev.name}</option>
+                          ))}
+                        </select>
+                        {sub.reviewer_2_evaluation_form && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '2px 6px', fontSize: '0.68rem', marginTop: '4px', display: 'block', width: '100%', textAlign: 'center' }}
+                            onClick={() => openFormViewModal('Ficha de Avaliação 2', sub.reviewer_2_evaluation_form, sub.reviewer_2_comments)}
+                          >
+                            👁️ Ver Ficha 2
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td>
                     <span className={`badge ${sub.status === 'under_review' ? 'badge-warning' : sub.status === 'accepted' ? 'badge-success' : sub.status === 'rejected' ? 'badge-danger' : 'badge-primary'
@@ -6846,6 +7422,13 @@ function AdminSubmissionsView({ token, showToast, selectedEventId: propEventId }
             )}
           </tbody>
         </table>
+      {showFormModal && formModalData && (
+        <EvaluationFormViewModal
+          title={formModalTitle}
+          data={formModalData}
+          onClose={() => { setShowFormModal(false); setFormModalData(null); }}
+        />
+      )}
       </div>
     </div>
   );
@@ -7568,6 +8151,107 @@ function AdminActivitiesView({ token, showToast, selectedEventId: propEventId, e
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────
+// STRUCTURAL WORK EVALUATION FORM VIEW MODAL (Reusable)
+// ──────────────────────────────────────────
+function EvaluationFormViewModal({ title, data, onClose }) {
+  if (!data) return null;
+
+  const EVALUATION_QUESTIONS = [
+    { id: 'q1', text: '1. O texto traz uma contribuição importante para o conhecimento da área em que se insere?' },
+    { id: 'q2', text: '2. O título e o resumo são coerentes com o conteúdo do texto?' },
+    { id: 'q3', text: '3. O Resumo apresenta os elementos principais?' },
+    { id: 'q4', text: '4. O tema proposto está bem desenvolvido, com articulação entre as partes do texto?' },
+    { id: 'q5', text: '5. O texto apresenta o método de pesquisa, descrevendo os instrumentos e técnicas adotados na pesquisa?' },
+    { id: 'q6', text: '6. De um modo geral, o texto alcança e/ou responde aos objetivos/questões propostos?' },
+    { id: 'q7', text: '7. O texto apresenta os principais resultados encontrados, com os dados e informações que contribuem para o atendimento do objetivo proposto?' },
+    { id: 'q8', text: '8. O texto apresenta as considerações sobre o estudo, sintetizando os aspectos mais importantes da pesquisa?' },
+    { id: 'q9', text: '9. As referências são atualizadas e/ou relevantes ao texto?' },
+    { id: 'q10', text: '10. Apresenta todas as referências citadas no texto?' },
+    { id: 'q11', text: '11. Quanto aos aspectos ortográfico e gramatical, o texto está bem escrito?' },
+    { id: 'q12', text: '12. Quanto à adequação da linguagem está clara?' },
+    { id: 'q13', text: '13. O texto segue rigorosamente as normas da ABNT?' }
+  ];
+
+  const getOptionLabel = (val) => {
+    const labels = {
+      sim: 'Sim',
+      razoavel: 'Razoável',
+      pouco: 'Pouco',
+      nao: 'Não'
+    };
+    return labels[val] || 'Não respondido';
+  };
+
+  const getRecommendationLabel = (val) => {
+    const labels = {
+      publish_as_is: 'Publicar o texto integralmente, sem alterações.',
+      publish_with_minor: 'Publicar o texto, sem retorno ao(s) autor(es), após pequenas correções, conforme sugestões anexas.',
+      publish_with_major: 'Publicar o texto após o retorno ao(s) autor(es) para significativas correções e alterações, conforme sugestões anexas.',
+      reject: 'Não publicar, devido aos motivos indicados a seguir.'
+    };
+    return labels[val] || 'Não selecionada';
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+      background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+      display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 3000
+    }}>
+      <div className="glass-card" style={{ width: '800px', maxHeight: '90vh', overflowY: 'auto', padding: '30px', animation: 'modalEnter 0.25s ease-out' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+          <h3 style={{ fontSize: '1.25rem', color: 'var(--primary)', margin: 0 }}>{title}</h3>
+          <button style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={onClose}>&times;</button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ background: 'var(--surface-secondary)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '10px', color: 'var(--primary)' }}>Critérios Avaliados</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {EVALUATION_QUESTIONS.map(q => {
+                const answer = data.answers?.[q.id];
+                return (
+                  <div key={q.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', borderBottom: '1px solid rgba(0,0,0,0.03)', paddingBottom: '6px' }}>
+                    <span style={{ maxWidth: '80%', color: 'var(--text-primary)' }}>{q.text}</span>
+                    <span style={{
+                      fontWeight: 'bold', 
+                      color: answer === 'sim' ? 'var(--success)' : answer === 'nao' ? 'var(--danger)' : 'var(--primary-light)',
+                      background: 'rgba(0,0,0,0.02)',
+                      padding: '2px 8px',
+                      borderRadius: '4px'
+                    }}>
+                      {getOptionLabel(answer)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ background: 'var(--surface-secondary)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px', color: 'var(--primary)' }}>Recomendação Oficial</h4>
+            <div style={{ fontSize: '0.9rem', fontWeight: '600', color: data.recommendation === 'reject' ? 'var(--danger)' : 'var(--success)' }}>
+              {getRecommendationLabel(data.recommendation)}
+            </div>
+          </div>
+
+          <div style={{ background: 'var(--surface-secondary)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px', color: 'var(--primary)' }}>Comentários ao Texto</h4>
+            <div style={{ fontSize: '0.88rem', fontStyle: 'italic', whiteSpace: 'pre-wrap', background: '#fff', padding: '10px', borderRadius: '4px', border: '1px solid #e2e8f0', color: 'var(--text-primary)' }}>
+              {data.comments || 'Sem comentários adicionais.'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+          <button className="btn btn-secondary" onClick={onClose}>Fechar</button>
+        </div>
       </div>
     </div>
   );

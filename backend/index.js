@@ -304,7 +304,11 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
     cert_bg_front_url,
     cert_bg_back_url,
     rules_files,
-    max_coauthors
+    max_coauthors,
+    submission_start_date,
+    submission_deadline,
+    evaluation_deadline,
+    results_deadline
   } = req.body;
 
   if (!name || !slug || !type || !start_date || !end_date) {
@@ -328,8 +332,9 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
         cert_border_color, cert_signature_name, cert_signature_role, cert_text_template,
         location, guests, submissions_enabled, cert_text_organization, cert_text_presentation, cert_text_guest,
         registration_start_date, registration_end_date, supporters, additional_links,
-        cert_bg_front_url, cert_bg_back_url, rules_files, max_coauthors, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cert_bg_front_url, cert_bg_back_url, rules_files, max_coauthors,
+        submission_start_date, submission_deadline, evaluation_deadline, results_deadline, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       eventId,
       formattedSlug,
@@ -362,6 +367,10 @@ app.post('/api/events', authenticateToken, requireRole(['admin', 'moderator']), 
       cert_bg_back_url || null,
       rulesFilesJSON,
       max_coauthors !== undefined ? parseInt(max_coauthors, 10) : 3,
+      submission_start_date || null,
+      submission_deadline || null,
+      evaluation_deadline || null,
+      results_deadline || null,
       new Date().toISOString()
     ]);
 
@@ -455,7 +464,11 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
     cert_bg_front_url,
     cert_bg_back_url,
     rules_files,
-    max_coauthors
+    max_coauthors,
+    submission_start_date,
+    submission_deadline,
+    evaluation_deadline,
+    results_deadline
   } = req.body;
 
   const formattedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -473,7 +486,8 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
           cert_border_color = ?, cert_signature_name = ?, cert_signature_role = ?, cert_text_template = ?,
           location = ?, guests = ?, submissions_enabled = ?, cert_text_organization = ?, cert_text_presentation = ?, cert_text_guest = ?,
           registration_start_date = ?, registration_end_date = ?, supporters = ?, additional_links = ?,
-          cert_bg_front_url = ?, cert_bg_back_url = ?, rules_files = ?, max_coauthors = ?
+          cert_bg_front_url = ?, cert_bg_back_url = ?, rules_files = ?, max_coauthors = ?,
+          submission_start_date = ?, submission_deadline = ?, evaluation_deadline = ?, results_deadline = ?
       WHERE id = ?
     `, [
       name,
@@ -506,6 +520,10 @@ app.put('/api/events/:id', authenticateToken, requireRole(['admin', 'moderator']
       cert_bg_back_url || null,
       rulesFilesJSON,
       max_coauthors !== undefined ? parseInt(max_coauthors, 10) : 3,
+      submission_start_date || null,
+      submission_deadline || null,
+      evaluation_deadline || null,
+      results_deadline || null,
       req.params.id
     ]);
 
@@ -948,9 +966,35 @@ app.get('/api/registrations/:id/pdf', authenticateToken, async (req, res) => {
 // 4. SUBMISSÃO DE TRABALHOS
 // ==========================================
 
+// Buscar participantes inscritos para coautoria
+app.get('/api/events/:id/registered-users-search', authenticateToken, async (req, res) => {
+  const eventId = req.params.id;
+  const q = req.query.q || '';
+  try {
+    const searchVal = `%${q}%`;
+    const users = await allQuery(`
+      SELECT u.id, u.name, u.email, u.cpf
+      FROM registrations r
+      JOIN users u ON r.user_id = u.id
+      WHERE r.event_id = ? AND (u.name LIKE ? OR u.email LIKE ? OR u.cpf LIKE ?)
+      LIMIT 20
+    `, [eventId, searchVal, searchVal, searchVal]);
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar participantes inscritos' });
+  }
+});
+
+// Configuração de upload múltiplo para versão cega e identificada
+const submissionFields = upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'file_identified', maxCount: 1 }
+]);
+
 // Enviar Submissão (Participante/Autor)
-app.post('/api/events/:id/submissions', authenticateToken, upload.single('file'), async (req, res) => {
-  const { title, authors, affiliation, thematic_axis } = req.body;
+app.post('/api/events/:id/submissions', authenticateToken, submissionFields, async (req, res) => {
+  const { title, authors, affiliation, thematic_axis, coauthor_ids } = req.body;
   const eventId = req.params.id;
   const userId = req.user.id;
 
@@ -958,15 +1002,64 @@ app.post('/api/events/:id/submissions', authenticateToken, upload.single('file')
     return res.status(400).json({ error: 'Todos os campos estruturados são obrigatórios' });
   }
 
-  if (!req.file) {
-    return res.status(400).json({ error: 'O arquivo do trabalho (PDF/Word) é obrigatório' });
+  const file = req.files && req.files['file'] ? req.files['file'][0] : null;
+  const fileIdentified = req.files && req.files['file_identified'] ? req.files['file_identified'][0] : null;
+
+  if (!file || !fileIdentified) {
+    return res.status(400).json({ error: 'Ambas as versões do trabalho (com e sem identificação) são obrigatórias' });
   }
 
   try {
+    // Validar se o evento existe, se as submissões estão habilitadas e se está no prazo
+    const event = await getQuery('SELECT submissions_enabled, submission_start_date, submission_deadline FROM events WHERE id = ?', [eventId]);
+    if (!event) {
+      return res.status(404).json({ error: 'Evento não encontrado' });
+    }
+
+    if (event.submissions_enabled !== 1) {
+      return res.status(400).json({ error: 'As submissões de trabalhos para este evento estão desabilitadas.' });
+    }
+
+    if (event.submission_start_date || event.submission_deadline) {
+      const offset = new Date().getTimezoneOffset();
+      const localDate = new Date(new Date().getTime() - (offset * 60 * 1000));
+      const today = localDate.toISOString().split('T')[0];
+
+      if (event.submission_start_date && today < event.submission_start_date) {
+        const startFormatted = event.submission_start_date.split('-').reverse().join('/');
+        return res.status(400).json({ error: `As submissões de trabalhos para este evento ainda não começaram. Elas estarão disponíveis a partir de ${startFormatted}.` });
+      }
+
+      if (event.submission_deadline && today > event.submission_deadline) {
+        return res.status(400).json({ error: 'O prazo de submissão de trabalhos para este evento já se encerrou.' });
+      }
+    }
+
+    // Validar coautores no banco de dados (se fornecidos)
+    let coauthorsList = [];
+    if (coauthor_ids) {
+      try {
+        coauthorsList = typeof coauthor_ids === 'string' ? JSON.parse(coauthor_ids) : coauthor_ids;
+      } catch (e) {
+        console.error('Error parsing coauthor_ids', e);
+      }
+    }
+
+    if (coauthorsList.length > 0) {
+      const placeholders = coauthorsList.map(() => '?').join(',');
+      const registrations = await allQuery(
+        `SELECT user_id FROM registrations WHERE event_id = ? AND user_id IN (${placeholders})`,
+        [eventId, ...coauthorsList]
+      );
+      if (registrations.length !== coauthorsList.length) {
+        return res.status(400).json({ error: 'Um ou mais coautores selecionados não estão inscritos neste evento.' });
+      }
+    }
+
     const submissionId = crypto.randomUUID();
     await runQuery(`
-      INSERT INTO submissions (id, event_id, user_id, title, authors, affiliation, thematic_axis, file_path, file_name, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'under_review', ?)
+      INSERT INTO submissions (id, event_id, user_id, title, authors, affiliation, thematic_axis, file_path, file_name, file_path_identified, file_name_identified, coauthor_ids, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'under_review', ?)
     `, [
       submissionId,
       eventId,
@@ -975,12 +1068,15 @@ app.post('/api/events/:id/submissions', authenticateToken, upload.single('file')
       authors,
       affiliation,
       thematic_axis,
-      `/uploads/${req.file.filename}`,
-      req.file.originalname,
+      `/uploads/${file.filename}`,
+      file.originalname,
+      `/uploads/${fileIdentified.filename}`,
+      fileIdentified.originalname,
+      JSON.stringify(coauthorsList),
       new Date().toISOString()
     ]);
 
-    res.status(201).json({ message: 'Trabalho submetido com sucesso para avaliação!' });
+    res.json({ message: 'Trabalho submetido com sucesso!' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao submeter trabalho' });
@@ -1093,9 +1189,9 @@ app.get('/api/coordination/submissions', authenticateToken, requireRole(['evalua
     if (req.user.role === 'admin' || req.user.role === 'moderator') {
       // Admins can see all submissions
       submissions = await allQuery(`
-        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name,
-               s.reviewer_id, rev.name as reviewer_name, s.reviewer_status, s.reviewer_comments,
-               s.reviewer_2_id, rev2.name as reviewer_2_name, s.reviewer_2_status, s.reviewer_2_comments
+        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.file_path_identified, s.file_name_identified, s.coauthor_ids, s.status, s.review_comments, s.created_at, e.name as event_name,
+               s.reviewer_id, rev.name as reviewer_name, s.reviewer_status, s.reviewer_comments, s.reviewer_evaluation_form,
+               s.reviewer_2_id, rev2.name as reviewer_2_name, s.reviewer_2_status, s.reviewer_2_comments, s.reviewer_2_evaluation_form
         FROM submissions s
         JOIN events e ON s.event_id = e.id
         LEFT JOIN users rev ON s.reviewer_id = rev.id
@@ -1105,9 +1201,9 @@ app.get('/api/coordination/submissions', authenticateToken, requireRole(['evalua
     } else {
       // Coordenador de Eixo
       submissions = await allQuery(`
-        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.status, s.review_comments, s.created_at, e.name as event_name,
-               s.reviewer_id, rev.name as reviewer_name, s.reviewer_status, s.reviewer_comments,
-               s.reviewer_2_id, rev2.name as reviewer_2_name, s.reviewer_2_status, s.reviewer_2_comments
+        SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, s.file_path_identified, s.file_name_identified, s.coauthor_ids, s.status, s.review_comments, s.created_at, e.name as event_name,
+               s.reviewer_id, rev.name as reviewer_name, s.reviewer_status, s.reviewer_comments, s.reviewer_evaluation_form,
+               s.reviewer_2_id, rev2.name as reviewer_2_name, s.reviewer_2_status, s.reviewer_2_comments, s.reviewer_2_evaluation_form
         FROM submissions s
         JOIN events e ON s.event_id = e.id
         JOIN event_assignments ea ON s.event_id = ea.event_id AND s.thematic_axis = ea.axis
@@ -1243,8 +1339,8 @@ app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator
   try {
     const toReview = await allQuery(`
       SELECT s.id, s.event_id, s.title, s.thematic_axis, s.file_path, s.file_name, 
-             s.reviewer_id, s.reviewer_status, s.reviewer_comments,
-             s.reviewer_2_id, s.reviewer_2_status, s.reviewer_2_comments,
+             s.reviewer_id, s.reviewer_status, s.reviewer_comments, s.reviewer_evaluation_form,
+             s.reviewer_2_id, s.reviewer_2_status, s.reviewer_2_comments, s.reviewer_2_evaluation_form,
              s.created_at, e.name as event_name
       FROM submissions s
       JOIN events e ON s.event_id = e.id
@@ -1254,6 +1350,16 @@ app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator
 
     const mappedToReview = toReview.map(sub => {
       const isReviewer1 = sub.reviewer_id === req.user.id;
+      const formStr = isReviewer1 ? sub.reviewer_evaluation_form : sub.reviewer_2_evaluation_form;
+      let evaluationForm = null;
+      if (formStr) {
+        try {
+          evaluationForm = JSON.parse(formStr);
+        } catch (e) {
+          console.error('Error parsing evaluation form JSON', e);
+        }
+      }
+
       return {
         id: sub.id,
         event_id: sub.event_id,
@@ -1265,7 +1371,8 @@ app.get('/api/submissions/to-review', authenticateToken, requireRole(['evaluator
         created_at: sub.created_at,
         reviewer_slot: isReviewer1 ? 1 : 2,
         status: isReviewer1 ? (sub.reviewer_status || 'under_review') : (sub.reviewer_2_status || 'under_review'),
-        review_comments: isReviewer1 ? (sub.reviewer_comments || '') : (sub.reviewer_2_comments || '')
+        review_comments: isReviewer1 ? (sub.reviewer_comments || '') : (sub.reviewer_2_comments || ''),
+        evaluation_form: evaluationForm
       };
     });
 
@@ -1336,7 +1443,7 @@ app.post('/api/submissions/:id/assign', authenticateToken, requireRole(['admin',
 
 // Emitir Parecer (Avaliador)
 app.post('/api/submissions/:id/review', authenticateToken, requireRole(['evaluator']), async (req, res) => {
-  const { status, review_comments } = req.body;
+  const { status, review_comments, evaluation_form } = req.body;
 
   if (!status || !['accepted', 'accepted_with_remarks', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'Selecione um status de avaliação válido' });
@@ -1347,22 +1454,26 @@ app.post('/api/submissions/:id/review', authenticateToken, requireRole(['evaluat
     const sub = await getQuery('SELECT reviewer_id, reviewer_2_id FROM submissions WHERE id = ?', [req.params.id]);
     if (!sub) return res.status(404).json({ error: 'Submissão não encontrada' });
 
-    let columnNameStatus, columnNameComments;
+    let columnNameStatus, columnNameComments, columnNameForm;
     if (sub.reviewer_id === req.user.id) {
       columnNameStatus = 'reviewer_status';
       columnNameComments = 'reviewer_comments';
+      columnNameForm = 'reviewer_evaluation_form';
     } else if (sub.reviewer_2_id === req.user.id) {
       columnNameStatus = 'reviewer_2_status';
       columnNameComments = 'reviewer_2_comments';
+      columnNameForm = 'reviewer_2_evaluation_form';
     } else {
       return res.status(403).json({ error: 'Acesso negado: você não é o avaliador designado para este trabalho' });
     }
 
+    const formJSON = evaluation_form ? JSON.stringify(evaluation_form) : null;
+
     await runQuery(`
       UPDATE submissions 
-      SET ${columnNameStatus} = ?, ${columnNameComments} = ?
+      SET ${columnNameStatus} = ?, ${columnNameComments} = ?, ${columnNameForm} = ?
       WHERE id = ?
-    `, [status, review_comments || '', req.params.id]);
+    `, [status, review_comments || '', formJSON, req.params.id]);
 
     res.json({ message: 'Parecer enviado com sucesso!' });
   } catch (err) {

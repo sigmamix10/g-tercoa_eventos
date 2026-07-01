@@ -92,6 +92,10 @@ const initPromise = new Promise(async (resolve, reject) => {
           cert_bg_back_url TEXT,
           rules_files TEXT,
           max_coauthors INTEGER DEFAULT 0,
+          submission_start_date VARCHAR(50),
+          submission_deadline VARCHAR(50),
+          evaluation_deadline VARCHAR(50),
+          results_deadline VARCHAR(50),
           created_at VARCHAR(50) NOT NULL
         )
       `);
@@ -147,6 +151,11 @@ const initPromise = new Promise(async (resolve, reject) => {
           reviewer_2_id VARCHAR(255),
           reviewer_2_status VARCHAR(50),
           reviewer_2_comments TEXT,
+          reviewer_evaluation_form TEXT,
+          reviewer_2_evaluation_form TEXT,
+          file_path_identified TEXT,
+          file_name_identified TEXT,
+          coauthor_ids TEXT,
           created_at VARCHAR(50) NOT NULL,
           FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
           FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -206,7 +215,16 @@ const initPromise = new Promise(async (resolve, reject) => {
         "ALTER TABLE submissions ADD COLUMN reviewer_2_status VARCHAR(50)",
         "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT",
         "ALTER TABLE events ADD COLUMN rules_files TEXT",
-        "ALTER TABLE events ADD COLUMN max_coauthors INTEGER DEFAULT 0"
+        "ALTER TABLE events ADD COLUMN max_coauthors INTEGER DEFAULT 0",
+        "ALTER TABLE events ADD COLUMN submission_start_date VARCHAR(50)",
+        "ALTER TABLE events ADD COLUMN submission_deadline VARCHAR(50)",
+        "ALTER TABLE events ADD COLUMN evaluation_deadline VARCHAR(50)",
+        "ALTER TABLE events ADD COLUMN results_deadline VARCHAR(50)",
+        "ALTER TABLE submissions ADD COLUMN reviewer_evaluation_form TEXT",
+        "ALTER TABLE submissions ADD COLUMN reviewer_2_evaluation_form TEXT",
+        "ALTER TABLE submissions ADD COLUMN file_path_identified TEXT",
+        "ALTER TABLE submissions ADD COLUMN file_name_identified TEXT",
+        "ALTER TABLE submissions ADD COLUMN coauthor_ids TEXT"
       ];
       for (const query of mysqlAlterQueries) {
         try {
@@ -337,6 +355,10 @@ const initPromise = new Promise(async (resolve, reject) => {
               cert_bg_back_url TEXT,
               rules_files TEXT,
               max_coauthors INTEGER DEFAULT 0,
+              submission_start_date TEXT,
+              submission_deadline TEXT,
+              evaluation_deadline TEXT,
+              results_deadline TEXT,
               created_at TEXT NOT NULL
             )
           `);
@@ -374,7 +396,16 @@ const initPromise = new Promise(async (resolve, reject) => {
             "ALTER TABLE submissions ADD COLUMN reviewer_2_status TEXT",
             "ALTER TABLE submissions ADD COLUMN reviewer_2_comments TEXT",
             "ALTER TABLE events ADD COLUMN rules_files TEXT",
-            "ALTER TABLE events ADD COLUMN max_coauthors INTEGER DEFAULT 0"
+            "ALTER TABLE events ADD COLUMN max_coauthors INTEGER DEFAULT 0",
+            "ALTER TABLE events ADD COLUMN submission_start_date TEXT",
+            "ALTER TABLE events ADD COLUMN submission_deadline TEXT",
+            "ALTER TABLE events ADD COLUMN evaluation_deadline TEXT",
+            "ALTER TABLE events ADD COLUMN results_deadline TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_evaluation_form TEXT",
+            "ALTER TABLE submissions ADD COLUMN reviewer_2_evaluation_form TEXT",
+            "ALTER TABLE submissions ADD COLUMN file_path_identified TEXT",
+            "ALTER TABLE submissions ADD COLUMN file_name_identified TEXT",
+            "ALTER TABLE submissions ADD COLUMN coauthor_ids TEXT"
           ];
 
           alterColumns.forEach(query => {
@@ -447,6 +478,11 @@ const initPromise = new Promise(async (resolve, reject) => {
               reviewer_2_id TEXT,
               reviewer_2_status TEXT,
               reviewer_2_comments TEXT,
+              reviewer_evaluation_form TEXT,
+              reviewer_2_evaluation_form TEXT,
+              file_path_identified TEXT,
+              file_name_identified TEXT,
+              coauthor_ids TEXT,
               created_at TEXT NOT NULL,
               FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
               FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
