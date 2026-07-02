@@ -328,6 +328,7 @@ export default function App() {
                   setSubView={setDashboardSubView}
                   showToast={showToast}
                   refreshUserProfile={fetchUserProfile}
+                  myAssignments={myAssignments}
                 />
               ) : (
                 <Navigate to="/" replace />
@@ -1561,7 +1562,7 @@ function CertificateVerifyView({ showToast }) {
 }
 
 // 4. DASHBOARD ROUTER AND RBAC VIEWS
-function DashboardRouter({ user, token, subView, setSubView, showToast, refreshUserProfile }) {
+function DashboardRouter({ user, token, subView, setSubView, showToast, refreshUserProfile, myAssignments = [] }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     localStorage.getItem('sidebarCollapsed') === 'true'
   );
@@ -1667,7 +1668,7 @@ function DashboardRouter({ user, token, subView, setSubView, showToast, refreshU
         {subView === 'evaluator-reviews' && <EvaluatorReviewsView token={token} showToast={showToast} />}
         {subView === 'coordinator-submissions' && <CoordinatorSubmissionsView token={token} showToast={showToast} />}
         {subView === 'admin-metrics' && <AdminMetricsView token={token} />}
-        {subView === 'admin-events' && <AdminEventsView token={token} showToast={showToast} />}
+        {subView === 'admin-events' && <AdminEventsView token={token} showToast={showToast} user={user} myAssignments={myAssignments} />}
         {subView === 'admin-users' && <AdminUsersView token={token} showToast={showToast} />}
         {subView === 'profile' && <UserProfileView user={user} token={token} showToast={showToast} refreshUserProfile={refreshUserProfile} />}
       </section>
@@ -3713,7 +3714,7 @@ function AdminMetricsView({ token }) {
 }
 
 // B. EVENT BUILDER
-function AdminEventsView({ token, showToast }) {
+function AdminEventsView({ token, showToast, user, myAssignments = [] }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
